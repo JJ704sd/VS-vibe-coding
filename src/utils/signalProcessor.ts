@@ -54,18 +54,11 @@ export class SignalProcessor {
   }
 
   private bandpassFilter(data: number[]): number[] {
-    const [lowFreq, highFreq] = this.config.filterBand;
     const fs = this.config.samplingRate;
     const n = data.length;
     const result = new Array(n);
 
-    const wc = 2 * highFreq / fs;
-    const wcLow = 2 * lowFreq / fs;
-
     for (let i = 0; i < n; i++) {
-      const t = i / fs;
-      const highPass = Math.sin(2 * Math.PI * lowFreq * t);
-      const lowPass = Math.sin(2 * Math.PI * highFreq * t);
       
       let sum = 0;
       const kernelSize = Math.floor(0.1 * fs);

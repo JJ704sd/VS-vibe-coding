@@ -20,7 +20,6 @@ export const CaseDetailPanel: React.FC<CaseDetailPanelProps> = ({
   patient,
   records = [],
   timeline = [],
-  loading = false,
   onRecordSelect,
   onRecordDelete
 }) => {
