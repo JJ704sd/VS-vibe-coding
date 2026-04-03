@@ -1,0 +1,214 @@
+:root {
+  --font-ui: "Segoe UI", "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --bg-page: radial-gradient(circle at 0 0, #eef5ff 0%, #f7f9fc 44%, #f4f6fa 100%);
+  --bg-panel: rgba(255, 255, 255, 0.78);
+  --border-soft: rgba(15, 32, 58, 0.12);
+  --text-main: #10223a;
+  --text-muted: #5f6f87;
+  --brand: #276ef1;
+  --brand-2: #0e4cd5;
+  --sidebar-bg: linear-gradient(175deg, #0e182b 0%, #122742 52%, #19365d 100%);
+  --sidebar-item: rgba(255, 255, 255, 0.08);
+  --card-shadow: 0 14px 30px rgba(18, 34, 68, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-ui);
+  color: var(--text-main);
+  background: var(--bg-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(16, 34, 58, 0.08);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(16, 34, 58, 0.28);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 34, 58, 0.4);
+}
+
+.app-layout {
+  height: 100vh;
+  background: transparent;
+}
+
+.app-content-layout {
+  background: transparent;
+}
+
+.app-sider {
+  background: var(--sidebar-bg) !important;
+  box-shadow: 4px 0 26px rgba(7, 18, 35, 0.28);
+}
+
+.app-logo {
+  height: 68px;
+  margin: 8px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #ecf3ff;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.app-menu.ant-menu-dark {
+  background: transparent;
+}
+
+.app-menu.ant-menu-dark .ant-menu-item {
+  margin-inline: 10px;
+  border-radius: 10px;
+  color: rgba(235, 245, 255, 0.85);
+}
+
+.app-menu.ant-menu-dark .ant-menu-item:hover {
+  background: var(--sidebar-item);
+  color: #ffffff;
+}
+
+.app-menu.ant-menu-dark .ant-menu-item-selected {
+  background: linear-gradient(90deg, rgba(56, 128, 255, 0.35) 0%, rgba(56, 128, 255, 0.12) 100%);
+  color: #ffffff;
+}
+
+.app-header {
+  height: 72px;
+  margin: 14px 14px 10px;
+  border-radius: 14px;
+  padding: 0 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-panel);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-soft);
+  box-shadow: var(--card-shadow);
+}
+
+.app-header-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.app-header-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.app-header-status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #28c76f;
+  box-shadow: 0 0 0 6px rgba(40, 199, 111, 0.15);
+}
+
+.app-content {
+  height: calc(100% - 96px) !important;
+  margin: 0 14px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--border-soft);
+  box-shadow: var(--card-shadow);
+  overflow: auto;
+}
+
+.ant-card {
+  border-radius: 12px;
+  border: 1px solid rgba(15, 32, 58, 0.08);
+  box-shadow: 0 8px 18px rgba(16, 34, 58, 0.06);
+}
+
+.ant-btn-primary {
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  border: none;
+}
+
+.ant-btn-primary:hover {
+  filter: brightness(1.05);
+}
+
+.ecg-canvas-container {
+  position: relative;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.annotation-marker {
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.annotation-marker:hover {
+  transform: scale(1.2);
+}
+
+.heatmap-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.upload-dragger {
+  text-align: center;
+  padding: 20px;
+}
+
+.upload-dragger .ant-upload-drag-icon {
+  font-size: 48px;
+  color: #1890ff;
+}
+
+@media (max-width: 991px) {
+  .app-header {
+    margin: 10px;
+    padding: 0 14px;
+  }
+
+  .app-content {
+    margin: 0 10px 10px;
+    height: calc(100% - 88px) !important;
+  }
+
+  .app-header-title {
+    font-size: 15px;
+  }
+}

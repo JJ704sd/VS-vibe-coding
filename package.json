@@ -1,0 +1,61 @@
+{
+  "name": "ecg-annotation-platform",
+  "version": "1.0.0",
+  "description": "ECG数据标注与分析平台 - 基于 React + TensorFlow.js",
+  "main": "src/index.tsx",
+  "scripts": {
+    "start": "webpack serve --mode development --open",
+    "build": "webpack --mode production",
+    "test": "jest",
+    "lint": "eslint src --ext .ts,.tsx",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\""
+  },
+  "keywords": [
+    "ecg",
+    "tensorflow",
+    "medical",
+    "annotation",
+    "healthcare"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@ant-design/icons": "^5.2.6",
+    "@ant-design/pro-components": "^2.6.43",
+    "@tensorflow/tfjs": "^4.10.0",
+    "antd": "^5.12.2",
+    "d3": "^7.8.5",
+    "dexie": "^3.2.4",
+    "echarts": "^5.4.3",
+    "echarts-for-react": "^3.0.2",
+    "fabric": "^5.3.0",
+    "firebase": "^10.7.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-redux": "^9.0.4",
+    "react-router-dom": "^6.21.0",
+    "react-window": "^1.8.9",
+    "@reduxjs/toolkit": "^2.0.1"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.3",
+    "@types/fabric": "^5.3.6",
+    "@types/node": "^20.10.5",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "@types/react-window": "^1.8.8",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "css-loader": "^6.8.1",
+    "eslint": "^8.56.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "html-webpack-plugin": "^5.6.0",
+    "style-loader": "^3.3.3",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.3",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^4.15.1"
+  }
+}
