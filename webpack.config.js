@@ -6,6 +6,7 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'bundle.[contenthash].js',
+    chunkFilename: '[name].[contenthash].js',
     clean: false,
     publicPath: '/',
   },
@@ -58,6 +59,7 @@ module.exports = {
     open: true,
   },
   optimization: {
+    runtimeChunk: 'single',
     splitChunks: {
       chunks: 'all',
       cacheGroups: {

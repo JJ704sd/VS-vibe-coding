@@ -77,6 +77,8 @@ const createDemoLeads = (): ECGLead[] => {
   ];
 };
 
+const INITIAL_DEMO_LEADS = createDemoLeads();
+
 const MITBIH_RECORD_ID_PATTERN = /^\d{3}$/;
 const DEFAULT_PLAYBACK_WINDOW = 1800;
 
@@ -89,9 +91,10 @@ const AnnotationStudio: React.FC = () => {
     (state: RootState) => state.ecg
   );
 
-  const demoLeads = createDemoLeads();
-  const sourceLeadsRef = useRef<ECGLead[]>(demoLeads);
-  const [leads, setLeads] = useState<ECGLead[]>(demoLeads);
+  const sourceLeadsRef = useRef<ECGLead[]>(INITIAL_DEMO_LEADS.map((lead) => ({ ...lead, data: [...lead.data] })));
+  const [leads, setLeads] = useState<ECGLead[]>(() =>
+    INITIAL_DEMO_LEADS.map((lead) => ({ ...lead, data: [...lead.data] }))
+  );
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);

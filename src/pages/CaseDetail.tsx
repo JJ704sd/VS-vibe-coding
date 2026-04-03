@@ -3,7 +3,6 @@ import { useParams } from 'react-router-dom';
 import { Card, Row, Col, Descriptions, Tag, Button, Timeline, Space, Typography } from 'antd';
 import { PlayCircleOutlined, DownloadOutlined } from '@ant-design/icons';
 import ECGCanvas from '../components/Canvas/ECGCanvas';
-import { ECGRecord } from '../types';
 import { mockRecordsByPatientId } from '../data/mockClinic';
 
 const { Title, Text } = Typography;

@@ -17,7 +17,6 @@ export const HeatmapOverlay: React.FC<HeatmapOverlayProps> = ({
   heatmapData,
   opacity = 0.5,
   colorScheme = 'default',
-  showColorBar = false,
   onHover
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -100,10 +99,10 @@ interface ModelLoaderProps {
 }
 
 export const ModelLoader: React.FC<ModelLoaderProps> = ({
-  modelUrl = '/models/ecg-classifier/model.json',
-  onLoad,
-  onError,
-  showProgress = true
+  modelUrl: _modelUrl = '/models/ecg-classifier/model.json',
+  onLoad: _onLoad,
+  onError: _onError,
+  showProgress: _showProgress = true
 }) => {
   return null;
 };
@@ -116,10 +115,10 @@ interface InferencePanelProps {
 }
 
 export const InferencePanel: React.FC<InferencePanelProps> = ({
-  predictions,
-  inferenceTime,
-  heatmapData,
-  onPredictionClick
+  predictions: _predictions,
+  inferenceTime: _inferenceTime,
+  heatmapData: _heatmapData,
+  onPredictionClick: _onPredictionClick
 }) => {
   return null;
 };

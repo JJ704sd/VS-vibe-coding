@@ -1,4 +1,4 @@
-import { ECGRecord, Patient, Annotation, ExportOptions } from '../types';
+import { ECGRecord, ExportOptions } from '../types';
 
 export function exportToJSON(record: ECGRecord, options?: ExportOptions): string {
   const data: any = {
