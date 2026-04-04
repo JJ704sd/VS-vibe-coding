@@ -1,0 +1,93 @@
+{
+  "patients": [
+    {
+      "id": "P001",
+      "name": "张三",
+      "age": 65,
+      "gender": "M",
+      "createdAt": "2026-01-15T10:00:00Z",
+      "updatedAt": "2026-03-25T10:30:00Z",
+      "record": {
+        "id": "R001",
+        "deviceId": "HUAWEI WATCH GT3",
+        "timestamp": "2026-03-25T10:30:00Z",
+        "duration": 10,
+        "samplingRate": 500,
+        "signalQuality": 85,
+        "diagnosis": {
+          "label": "房颤",
+          "confidence": 0.92
+        },
+        "leadSet": [
+          { "name": "I", "scale": 0.5, "phase": 0, "baseline": 0 },
+          { "name": "II", "scale": 0.4, "phase": 2, "baseline": 0.01 },
+          { "name": "V1", "scale": 0.3, "phase": 4, "baseline": 0 }
+        ]
+      }
+    },
+    {
+      "id": "P002",
+      "name": "李四",
+      "age": 58,
+      "gender": "F",
+      "createdAt": "2026-02-10T08:00:00Z",
+      "updatedAt": "2026-03-20T08:15:00Z",
+      "record": {
+        "id": "R002",
+        "deviceId": "ECG Patch Pro",
+        "timestamp": "2026-03-20T08:15:00Z",
+        "duration": 10,
+        "samplingRate": 500,
+        "signalQuality": 91,
+        "diagnosis": {
+          "label": "正常",
+          "confidence": 0.88
+        },
+        "leadSet": [
+          { "name": "I", "scale": 0.32, "phase": 1, "baseline": 0 },
+          { "name": "II", "scale": 0.34, "phase": 3, "baseline": 0.01 },
+          { "name": "V1", "scale": 0.22, "phase": 5, "baseline": -0.01 }
+        ]
+      }
+    },
+    {
+      "id": "P003",
+      "name": "王五",
+      "age": 72,
+      "gender": "M",
+      "createdAt": "2026-03-01T14:00:00Z",
+      "updatedAt": "2026-03-15T12:05:00Z",
+      "record": {
+        "id": "R003",
+        "deviceId": "Portable ECG",
+        "timestamp": "2026-03-15T12:05:00Z",
+        "duration": 10,
+        "samplingRate": 500,
+        "signalQuality": 79,
+        "diagnosis": {
+          "label": "室上性心动过速",
+          "confidence": 0.84
+        },
+        "leadSet": [
+          { "name": "I", "scale": 0.48, "phase": 2, "baseline": 0 },
+          { "name": "II", "scale": 0.36, "phase": 4, "baseline": 0.02 },
+          { "name": "V1", "scale": 0.28, "phase": 6, "baseline": 0 }
+        ]
+      }
+    }
+  ],
+  "dashboard": {
+    "recentActivities": [
+      "张三 - 房颤标注完成 - 2 小时前",
+      "李四 - 新增心电图 - 3 小时前",
+      "王五 - 标注审核通过 - 5 小时前",
+      "赵六 - 批量导入 WFDB - 7 小时前"
+    ],
+    "diagnosisStats": [
+      { "name": "正常", "value": 45, "color": "green" },
+      { "name": "房颤", "value": 25, "color": "red" },
+      { "name": "室上性心动过速", "value": 15, "color": "orange" },
+      { "name": "其他", "value": 15, "color": "blue" }
+    ]
+  }
+}

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Row, Col, Card, Descriptions, Tag, Button, Timeline, Space, List, Avatar, Typography, Empty } from 'antd';
-import { PlayCircleOutlined, DownloadOutlined, EditOutlined, DeleteOutlined, FileTextOutlined, HeartOutlined, ClockCircleOutlined } from '@ant-design/icons';
+﻿import React, { useEffect, useMemo, useState } from 'react';
+import { Avatar, Button, Card, Descriptions, Empty, List, Space, Tag, Timeline, Typography } from 'antd';
+import { ClockCircleOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, HeartOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { Patient, ECGRecord, TimelineEvent, Annotation } from '../../types';
 import { exportRecord } from '../../utils/exportUtils';
@@ -16,12 +16,20 @@ interface CaseDetailPanelProps {
   onRecordDelete?: (recordId: string) => void;
 }
 
+const diagnosisPalette: Record<string, string> = {
+  正常: 'green',
+  房颤: 'red',
+  室上性心动过速: 'orange',
+  室性心动过速: 'red',
+  停搏: 'purple',
+};
+
 export const CaseDetailPanel: React.FC<CaseDetailPanelProps> = ({
   patient,
   records = [],
   timeline = [],
   onRecordSelect,
-  onRecordDelete
+  onRecordDelete,
 }) => {
   const navigate = useNavigate();
   const [selectedRecord, setSelectedRecord] = useState<ECGRecord | null>(null);
@@ -31,6 +39,18 @@ export const CaseDetailPanel: React.FC<CaseDetailPanelProps> = ({
       setSelectedRecord(records[0]);
     }
   }, [records, selectedRecord]);
+
+  const recordItems = useMemo(
+    () =>
+      records.map((record, index) => ({
+        record,
+        index,
+        diagnosisColor: record.diagnosis
+          ? diagnosisPalette[record.diagnosis.label] || 'default'
+          : 'default',
+      })),
+    [records]
+  );
 
   const handleRecordClick = (record: ECGRecord) => {
     setSelectedRecord(record);
@@ -42,200 +62,177 @@ export const CaseDetailPanel: React.FC<CaseDetailPanelProps> = ({
       format,
       includeAnnotations: true,
       includeDiagnosis: true,
-      includeMetadata: true
+      includeMetadata: true,
     });
   };
 
-  const getDiagnosisColor = (diagnosis?: string) => {
-    const colorMap: Record<string, string> = {
-      '正常': 'green',
-      '房颤': 'red',
-      '室上性心动过速': 'orange',
-      '室性心动过速': 'red',
-      '停搏': 'purple'
-    };
-    return colorMap[diagnosis || ''] || 'default';
-  };
-
   if (!patient) {
-    return <Empty description="请选择患者" />;
+    return <Empty className="empty-panel" description="请选择一位患者后查看详情" />;
   }
 
   return (
-    <div>
-      <Card 
-        title={
-          <Space>
-            <Avatar style={{ backgroundColor: '#1890ff' }} icon={<FileTextOutlined />} />
-            <span>{patient.name}</span>
-            <Tag color="blue">{patient.id}</Tag>
-          </Space>
-        }
-        extra={
-          <Space>
-            <Button icon={<EditOutlined />}>编辑</Button>
-          </Space>
-        }
-      >
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Card className="section-card" title={patient.name} extra={<Tag color="blue">{patient.id}</Tag>}>
         <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small">
           <Descriptions.Item label="年龄">{patient.age} 岁</Descriptions.Item>
           <Descriptions.Item label="性别">{patient.gender === 'M' ? '男' : '女'}</Descriptions.Item>
-          <Descriptions.Item label="记录数">
-            <Tag color="purple">{records.length} 条</Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="创建时间">
-            {new Date(patient.createdAt).toLocaleString('zh-CN')}
-          </Descriptions.Item>
-          <Descriptions.Item label="更新时间">
-            {new Date(patient.updatedAt).toLocaleString('zh-CN')}
-          </Descriptions.Item>
+          <Descriptions.Item label="记录数">{records.length} 条</Descriptions.Item>
+          <Descriptions.Item label="创建时间">{new Date(patient.createdAt).toLocaleString('zh-CN')}</Descriptions.Item>
+          <Descriptions.Item label="更新时间">{new Date(patient.updatedAt).toLocaleString('zh-CN')}</Descriptions.Item>
         </Descriptions>
       </Card>
 
-      <Row gutter={16} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={12}>
-          <Card 
-            title={
-              <Space>
-                <HeartOutlined />
-                <span>心电记录列表</span>
-              </Space>
-            }
-            extra={<Tag>{records.length} 条</Tag>}
-            style={{ maxHeight: 400, overflow: 'auto' }}
-          >
+      <div className="workspace-grid workspace-grid--split">
+        <Card
+          className="section-card"
+          title={
+            <Space>
+              <HeartOutlined />
+              <span>心电记录列表</span>
+            </Space>
+          }
+          extra={<Tag>{records.length} 条</Tag>}
+        >
+          {recordItems.length > 0 ? (
             <List
               itemLayout="horizontal"
-              dataSource={records}
-              renderItem={(record: ECGRecord, index: number) => (
+              dataSource={recordItems}
+              renderItem={({ record, index, diagnosisColor }) => (
                 <List.Item
-                  style={{ 
-                    cursor: 'pointer',
-                    background: selectedRecord?.id === record.id ? '#e6f7ff' : undefined,
-                    padding: '8px 12px',
-                    marginBottom: 4,
-                    borderRadius: 4
-                  }}
                   onClick={() => handleRecordClick(record)}
+                  style={{
+                    cursor: 'pointer',
+                    padding: '12px 14px',
+                    borderRadius: 16,
+                    marginBottom: 10,
+                    border: selectedRecord?.id === record.id ? '1px solid rgba(39, 94, 241, 0.22)' : '1px solid transparent',
+                    background:
+                      selectedRecord?.id === record.id
+                        ? 'rgba(39, 94, 241, 0.05)'
+                        : 'rgba(255, 255, 255, 0.6)',
+                  }}
                   actions={[
-                    <Button 
-                      key="view" 
-                      type="link" 
-                      size="small"
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        navigate(`/annotation/${record.id}`);
-                      }}
-                    >
+                    <Button key="view" type="link" size="small" onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/annotation/${record.id}`);
+                    }}>
                       标注
                     </Button>,
-                    <Button 
-                      key="export" 
-                      type="link" 
-                      size="small"
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        handleExport(record, 'json');
-                      }}
-                    >
+                    <Button key="export" type="link" size="small" onClick={(e) => {
+                      e.stopPropagation();
+                      handleExport(record, 'json');
+                    }}>
                       导出
                     </Button>,
-                    <Button 
-                      key="delete"
-                      type="link" 
-                      size="small" 
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        onRecordDelete?.(record.id);
-                      }}
-                    />
+                    <Button key="delete" type="link" size="small" danger icon={<DeleteOutlined />} onClick={(e) => {
+                      e.stopPropagation();
+                      onRecordDelete?.(record.id);
+                    }} />,
                   ]}
                 >
                   <List.Item.Meta
                     avatar={
-                      <Avatar 
-                        style={{ 
-                          backgroundColor: record.diagnosis 
-                            ? getDiagnosisColor(record.diagnosis.label) 
-                            : '#888' 
-                        }}
+                      <Avatar
+                        style={{ backgroundColor: diagnosisColor === 'default' ? '#73849c' : undefined }}
                         icon={<HeartOutlined />}
                       />
                     }
                     title={
-                      <Space>
+                      <Space wrap>
                         <Text strong>#{index + 1}</Text>
                         <Text>{new Date(record.timestamp).toLocaleString('zh-CN')}</Text>
-                        {record.diagnosis && (
-                          <Tag color={getDiagnosisColor(record.diagnosis.label)}>
+                        {record.diagnosis ? (
+                          <Tag color={diagnosisColor}>
                             {record.diagnosis.label} ({Math.round(record.diagnosis.confidence * 100)}%)
                           </Tag>
+                        ) : (
+                          <Tag>暂无诊断</Tag>
                         )}
                       </Space>
                     }
                     description={
-                      <Space split={<Text type="secondary">|</Text>}>
+                      <Space split={<Text type="secondary">|</Text>} wrap>
                         <Text type="secondary">{record.deviceId}</Text>
                         <Text type="secondary">{record.duration}s</Text>
                         <Text type="secondary">{record.samplingRate}Hz</Text>
-                        <Text type="secondary">质量: {record.signalQuality}%</Text>
+                        <Text type="secondary">质量 {record.signalQuality}%</Text>
                       </Space>
                     }
                   />
                 </List.Item>
               )}
             />
-          </Card>
-        </Col>
+          ) : (
+            <Empty description="暂无记录" />
+          )}
+        </Card>
 
-        <Col xs={24} lg={12}>
-          <Card 
-            title={
-              <Space>
-                <ClockCircleOutlined />
-                <span>活动时间线</span>
-              </Space>
-            }
-            style={{ maxHeight: 400, overflow: 'auto' }}
-          >
+        <Card
+          className="section-card"
+          title={
+            <Space>
+              <ClockCircleOutlined />
+              <span>活动时间线</span>
+            </Space>
+          }
+        >
+          {timeline.length > 0 ? (
             <Timeline
-              items={timeline.map((event: TimelineEvent) => ({
-                color: event.type === 'diagnose' ? 'green' : 'blue',
-                children: (
-                  <div>
-                    <Text strong>{event.description}</Text>
-                    <br />
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {new Date(event.timestamp).toLocaleString('zh-CN')}
-                    </Text>
-                  </div>
-                )
-              })).reverse()}
+              items={timeline
+                .slice()
+                .reverse()
+                .map((event: TimelineEvent) => ({
+                  color: event.type === 'diagnose' ? 'green' : 'blue',
+                  children: (
+                    <div>
+                      <Text strong>{event.description}</Text>
+                      <br />
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {new Date(event.timestamp).toLocaleString('zh-CN')}
+                      </Text>
+                    </div>
+                  ),
+                }))}
             />
-          </Card>
-        </Col>
-      </Row>
+          ) : (
+            <Empty description="暂无时间线" />
+          )}
+        </Card>
+      </div>
 
-      {selectedRecord && (
-        <Card title="当前记录详情" style={{ marginTop: 16 }}>
+      {selectedRecord ? (
+        <Card
+          className="workspace-card"
+          title="当前记录详情"
+          extra={
+            <Space wrap>
+              <Button size="small" icon={<PlayCircleOutlined />} onClick={() => navigate(`/annotation/${selectedRecord.id}`)}>
+                查看波形
+              </Button>
+              <Button size="small" icon={<DownloadOutlined />} onClick={() => handleExport(selectedRecord, 'json')}>
+                导出 JSON
+              </Button>
+              <Button size="small" onClick={() => handleExport(selectedRecord, 'csv')}>
+                导出 CSV
+              </Button>
+              <Button size="small" onClick={() => handleExport(selectedRecord, 'tcx')}>
+                导出 TCX
+              </Button>
+            </Space>
+          }
+        >
           <Descriptions column={{ xs: 1, sm: 2, md: 4 }} size="small">
             <Descriptions.Item label="记录ID">{selectedRecord.id}</Descriptions.Item>
             <Descriptions.Item label="设备">{selectedRecord.deviceId}</Descriptions.Item>
             <Descriptions.Item label="采样率">{selectedRecord.samplingRate} Hz</Descriptions.Item>
             <Descriptions.Item label="时长">{selectedRecord.duration}s</Descriptions.Item>
             <Descriptions.Item label="信号质量">
-              <Tag color={selectedRecord.signalQuality > 70 ? 'green' : 'orange'}>
-                {selectedRecord.signalQuality}%
-              </Tag>
+              <Tag color={selectedRecord.signalQuality > 70 ? 'green' : 'orange'}>{selectedRecord.signalQuality}%</Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="标注数">
-              {selectedRecord.annotations.length} 个
-            </Descriptions.Item>
+            <Descriptions.Item label="标注数">{selectedRecord.annotations.length} 条</Descriptions.Item>
             <Descriptions.Item label="诊断">
               {selectedRecord.diagnosis ? (
-                <Tag color={getDiagnosisColor(selectedRecord.diagnosis.label)}>
+                <Tag color={diagnosisPalette[selectedRecord.diagnosis.label] || 'blue'}>
                   {selectedRecord.diagnosis.label} ({Math.round(selectedRecord.diagnosis.confidence * 100)}%)
                 </Tag>
               ) : (
@@ -243,47 +240,27 @@ export const CaseDetailPanel: React.FC<CaseDetailPanelProps> = ({
               )}
             </Descriptions.Item>
             <Descriptions.Item label="操作">
-              <Space>
-                <Button 
-                  size="small" 
-                  icon={<PlayCircleOutlined />}
-                  onClick={() => navigate(`/annotation/${selectedRecord.id}`)}
-                >
-                  查看波形
-                </Button>
-                <Button size="small" icon={<DownloadOutlined />} onClick={() => handleExport(selectedRecord, 'json')}>
-                  导出JSON
-                </Button>
-                <Button size="small" onClick={() => handleExport(selectedRecord, 'csv')}>
-                  导出CSV
-                </Button>
-                <Button size="small" onClick={() => handleExport(selectedRecord, 'tcx')}>
-                  导出TCX
-                </Button>
-              </Space>
+              <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/annotation/${selectedRecord.id}`)}>
+                打开标注
+              </Button>
             </Descriptions.Item>
           </Descriptions>
 
-          {selectedRecord.annotations.length > 0 && (
+          {selectedRecord.annotations.length > 0 ? (
             <div style={{ marginTop: 16 }}>
-              <Text strong>标注列表：</Text>
-              <List
-                size="small"
-                style={{ marginTop: 8 }}
-                dataSource={selectedRecord.annotations}
-                renderItem={(ann: Annotation) => (
-                  <Tag>
-                    {ann.type} - 位置: {Math.round(ann.position)} - 
-                    置信度: {Math.round(ann.confidence * 100)}% - 
-                    {ann.manual ? '人工' : 'AI'}
+              <Text strong>标注列表</Text>
+              <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {selectedRecord.annotations.map((ann: Annotation) => (
+                  <Tag key={ann.id} color={ann.manual ? 'blue' : 'geekblue'}>
+                    {ann.type} · {Math.round(ann.position)} · {Math.round(ann.confidence * 100)}%
                   </Tag>
-                )}
-              />
+                ))}
+              </div>
             </div>
-          )}
+          ) : null}
         </Card>
-      )}
-    </div>
+      ) : null}
+    </Space>
   );
 };
 

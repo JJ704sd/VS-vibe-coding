@@ -352,20 +352,31 @@ const ECGCanvas: React.FC<ECGCanvasProps> = ({
     canvasInstance.renderAll();
   };
 
+  const activeToolLabel = selectedTool === 'annotate' ? '标注' : '平移';
+  const annotationCount = annotations.length;
+  const leadCount = leads.length;
+
   return (
-    <div style={{ position: 'relative' }}>
+    <div className="ecg-canvas-container">
       <div
         style={{
           position: 'absolute',
-          top: 10,
-          left: 10,
+          top: 12,
+          left: 12,
+          right: 12,
           zIndex: 10,
-          background: 'rgba(0,0,0,0.7)',
-          padding: '8px 12px',
-          borderRadius: 4,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: '10px 12px',
+          borderRadius: 14,
+          background: 'rgba(8, 14, 24, 0.64)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          backdropFilter: 'blur(16px)',
         }}
       >
-        <Space>
+        <Space size={8} wrap>
           <Tooltip title="放大">
             <Button icon={<ZoomInOutlined />} onClick={() => handleZoom('in')} size="small" />
           </Tooltip>
@@ -373,38 +384,50 @@ const ECGCanvas: React.FC<ECGCanvasProps> = ({
             <Button icon={<ZoomOutOutlined />} onClick={() => handleZoom('out')} size="small" />
           </Tooltip>
           <Tooltip title="重置视图">
-            <Button
-              icon={<FullscreenOutlined />}
-              onClick={() => handleZoom('reset')}
-              size="small"
-            />
+            <Button icon={<FullscreenOutlined />} onClick={() => handleZoom('reset')} size="small" />
           </Tooltip>
           <Select
             value={selectedTool}
             onChange={setSelectedTool}
-            style={{ width: 100 }}
+            style={{ width: 110 }}
             options={[
               { value: 'pan', label: '平移' },
               { value: 'annotate', label: '标注' },
             ]}
           />
         </Space>
+
+        <Space size={10} wrap>
+          <span style={{ color: '#e7eef7', fontSize: 12 }}>导联 {leadCount}</span>
+          <span style={{ color: '#e7eef7', fontSize: 12 }}>标注 {annotationCount}</span>
+          <span style={{ color: '#e7eef7', fontSize: 12 }}>模式 {activeToolLabel}</span>
+        </Space>
       </div>
 
       <div
         style={{
           position: 'absolute',
-          bottom: 10,
-          left: 10,
+          bottom: 12,
+          left: 12,
           zIndex: 10,
-          background: 'rgba(0,0,0,0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
           padding: '8px 12px',
-          borderRadius: 4,
+          borderRadius: 999,
+          background: 'rgba(8, 14, 24, 0.64)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          color: '#d8e3f2',
+          backdropFilter: 'blur(16px)',
         }}
       >
-        <span style={{ color: '#888', fontSize: 12 }}>缩放: {Math.round(canvas.zoom * 100)}%</span>
+        <span style={{ fontSize: 12 }}>缩放 {Math.round(canvas.zoom * 100)}%</span>
+        <span style={{ opacity: 0.4 }}>•</span>
+        <span style={{ fontSize: 12 }}>
+          {selectedTool === 'annotate' ? '双击波形添加标注' : '拖拽移动波形'}
+        </span>
       </div>
-      <canvas ref={canvasRef} />
+      <canvas ref={canvasRef} style={{ display: 'block' }} />
     </div>
   );
 };

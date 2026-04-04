@@ -4,7 +4,9 @@
   "description": "ECG数据标注与分析平台 - 基于 React + TensorFlow.js",
   "main": "src/index.tsx",
   "scripts": {
-    "start": "webpack serve --mode development --open",
+    "start": "node scripts/dev.js",
+    "dev:web": "webpack serve --mode development --open",
+    "dev:api": "node mock-api/server.js",
     "build": "webpack --mode production",
     "test": "jest",
     "lint": "eslint src --ext .ts,.tsx",

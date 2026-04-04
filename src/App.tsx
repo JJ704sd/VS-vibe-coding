@@ -15,14 +15,7 @@ const AIModels = lazy(() => import(/* webpackChunkName: "ai-models-page" */ './p
 const Settings = lazy(() => import(/* webpackChunkName: "settings-page" */ './pages/Settings'));
 
 const routeFallback = (
-  <div
-    style={{
-      minHeight: '40vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-    }}
-  >
+  <div className="route-loading">
     <Spin size="large" tip="Loading workspace..." />
   </div>
 );

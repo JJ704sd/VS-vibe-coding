@@ -1,84 +1,210 @@
-﻿import React from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Card, Row, Col, Descriptions, Tag, Button, Timeline, Space, Typography } from 'antd';
-import { PlayCircleOutlined, DownloadOutlined } from '@ant-design/icons';
+import { Button, Card, Col, Descriptions, Empty, List, Row, Space, Spin, Tag, Timeline, Typography } from 'antd';
+import { DownloadOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import ECGCanvas from '../components/Canvas/ECGCanvas';
-import { mockRecordsByPatientId } from '../data/mockClinic';
+import { ECGRecord } from '../types';
+import { getPatientBundle, PatientBundle } from '../services/clinicApi';
 
 const { Title, Text } = Typography;
 
 const CaseDetail: React.FC = () => {
   const { patientId } = useParams<{ patientId: string }>();
-  const selectedRecord = (patientId && mockRecordsByPatientId[patientId]) || null;
+  const [bundle, setBundle] = useState<PatientBundle | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (!patientId) {
+      setBundle({ sourceLabel: '本地 mock 数据', patient: null, record: null });
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    getPatientBundle(patientId)
+      .then((nextBundle) => {
+        if (mounted) {
+          setBundle(nextBundle);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setBundle({ sourceLabel: '本地 mock 数据', patient: null, record: null });
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [patientId]);
+
+  const patient = bundle?.patient || null;
+  const selectedRecord = bundle?.record || patient?.records?.[0] || null;
+
+  const recordList = useMemo(
+    () =>
+      (patient?.records || []).map((record: ECGRecord) => ({
+        label: new Date(record.timestamp).toLocaleDateString('zh-CN'),
+        status: record.diagnosis?.label || '未诊断',
+        color: record.diagnosis?.label === '正常' ? 'green' : 'red',
+        record,
+      })),
+    [patient]
+  );
+
+  const sourceLabel = bundle?.sourceLabel || '加载中';
 
   return (
-    <div style={{ padding: 24 }}>
-      <Space direction="vertical" size={2} style={{ marginBottom: 18 }}>
-        <Title level={3} style={{ margin: 0 }}>
-          病例详情
-        </Title>
-        <Text type="secondary">查看患者信息、心电记录与诊断时间线</Text>
-      </Space>
+    <div className="page-shell page-shell-wide">
+      <section className="page-hero">
+        <div className="page-kicker">Patient detail</div>
+        <Title className="page-title">病例详情</Title>
+        <Text className="page-subtitle">
+          统一查看患者信息、记录列表、波形和诊断时间线。当前页面已切换到本地 mock API，如果接口不可用，会自动回退到本地 mock 数据。
+        </Text>
+        <Space wrap>
+          <Tag color={sourceLabel === '本地 mock API' ? 'blue' : 'gold'}>{sourceLabel}</Tag>
+          {patient ? <Tag color="blue">{patient.id}</Tag> : null}
+        </Space>
+        <div className="page-actions">
+          <Button type="primary" icon={<PlayCircleOutlined />}>
+            预览波形
+          </Button>
+          <Button icon={<DownloadOutlined />}>导出记录</Button>
+        </div>
+      </section>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={7} xxl={6}>
-          <Card title="患者信息" size="small">
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="患者 ID">{patientId}</Descriptions.Item>
-              <Descriptions.Item label="姓名">张三</Descriptions.Item>
-              <Descriptions.Item label="年龄">65 岁</Descriptions.Item>
-              <Descriptions.Item label="性别">男</Descriptions.Item>
-            </Descriptions>
-          </Card>
+      {loading ? (
+        <Card className="section-card" style={{ marginTop: 18 }}>
+          <div style={{ minHeight: 240, display: 'grid', placeItems: 'center' }}>
+            <Spin size="large" />
+          </div>
+        </Card>
+      ) : (
+        <Row gutter={[16, 16]} style={{ marginTop: 18 }}>
+          <Col xs={24} xl={8}>
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Card className="section-card" title="患者信息">
+                {patient ? (
+                  <Descriptions column={1} size="small">
+                    <Descriptions.Item label="患者 ID">{patient.id}</Descriptions.Item>
+                    <Descriptions.Item label="姓名">{patient.name}</Descriptions.Item>
+                    <Descriptions.Item label="年龄">{patient.age} 岁</Descriptions.Item>
+                    <Descriptions.Item label="性别">{patient.gender === 'M' ? '男' : '女'}</Descriptions.Item>
+                  </Descriptions>
+                ) : (
+                  <Empty description="未找到患者" />
+                )}
+              </Card>
 
-          <Card title="心电记录列表" size="small" style={{ marginTop: 16 }}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Tag color="blue" style={{ padding: '4px 8px' }}>
-                2026-03-25 房颤 (92%)
-              </Tag>
-              <Tag color="green" style={{ padding: '4px 8px' }}>
-                2026-03-20 正常
-              </Tag>
-              <Tag style={{ padding: '4px 8px' }}>2026-03-15 正常</Tag>
+              <Card className="section-card" title="心电记录列表">
+                {recordList.length > 0 ? (
+                  <List
+                    dataSource={recordList}
+                    renderItem={(item) => (
+                      <List.Item style={{ paddingInline: 0 }}>
+                        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                          <Space>
+                            <Tag color={item.color}>{item.label}</Tag>
+                            <Text strong>{item.status}</Text>
+                          </Space>
+                          <Text type="secondary">设备：{item.record.deviceId}</Text>
+                        </Space>
+                      </List.Item>
+                    )}
+                  />
+                ) : (
+                  <Empty description="没有记录" />
+                )}
+              </Card>
             </Space>
-          </Card>
-        </Col>
+          </Col>
 
-        <Col xs={24} lg={17} xxl={18}>
-          <Card
-            title={selectedRecord ? `心电图详情 - ${selectedRecord.diagnosis?.label || '未诊断'}` : '请选择记录'}
-            extra={
-              <Space>
-                <Button icon={<PlayCircleOutlined />}>预览</Button>
-                <Button icon={<DownloadOutlined />}>导出</Button>
-              </Space>
-            }
-          >
-            {selectedRecord ? (
-              <>
-                <Descriptions column={4} size="small" style={{ marginBottom: 16 }}>
-                  <Descriptions.Item label="设备">{selectedRecord.deviceId}</Descriptions.Item>
-                  <Descriptions.Item label="采样率">{selectedRecord.samplingRate} Hz</Descriptions.Item>
-                  <Descriptions.Item label="时长">{selectedRecord.duration}s</Descriptions.Item>
-                  <Descriptions.Item label="信号质量">{selectedRecord.signalQuality}%</Descriptions.Item>
-                </Descriptions>
-                <ECGCanvas leads={selectedRecord.leads} />
-              </>
-            ) : null}
-          </Card>
+          <Col xs={24} xl={16}>
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Card
+                className="workspace-card"
+                title={selectedRecord ? `心电图详情 - ${selectedRecord.diagnosis?.label || '未诊断'}` : '请选择记录'}
+                extra={
+                  <Space>
+                    <Tag color="blue">{selectedRecord ? 'Active' : 'Idle'}</Tag>
+                    <Button icon={<PlayCircleOutlined />}>预览</Button>
+                    <Button icon={<DownloadOutlined />}>导出</Button>
+                  </Space>
+                }
+              >
+                {selectedRecord ? (
+                  <>
+                    <Descriptions column={{ xs: 1, sm: 2, md: 4 }} size="small" style={{ marginBottom: 16 }}>
+                      <Descriptions.Item label="设备">{selectedRecord.deviceId}</Descriptions.Item>
+                      <Descriptions.Item label="采样率">{selectedRecord.samplingRate} Hz</Descriptions.Item>
+                      <Descriptions.Item label="时长">{selectedRecord.duration}s</Descriptions.Item>
+                      <Descriptions.Item label="信号质量">{selectedRecord.signalQuality}%</Descriptions.Item>
+                    </Descriptions>
+                    <ECGCanvas leads={selectedRecord.leads} />
+                  </>
+                ) : (
+                  <Empty description="该患者暂无可用记录" />
+                )}
+              </Card>
 
-          <Card title="诊断时间线" style={{ marginTop: 16 }}>
-            <Timeline>
-              <Timeline.Item color="green">2026-03-25 10:30 - 房颤确诊（AI 辅助诊断）</Timeline.Item>
-              <Timeline.Item color="green">2026-03-20 14:20 - 心电图检查正常</Timeline.Item>
-              <Timeline.Item>2026-03-15 09:00 - 初诊建档</Timeline.Item>
-            </Timeline>
-          </Card>
-        </Col>
-      </Row>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} lg={12}>
+                  <Card className="section-card" title="诊断时间线">
+                    {selectedRecord ? (
+                      <Timeline
+                        items={[
+                          {
+                            color: 'green',
+                            children: `${new Date(selectedRecord.timestamp).toLocaleString('zh-CN')} - ${selectedRecord.diagnosis?.label || '未诊断'}`,
+                          },
+                          { color: 'blue', children: '记录已同步到本地 mock API' },
+                        ]}
+                      />
+                    ) : (
+                      <Empty description="暂无时间线" />
+                    )}
+                  </Card>
+                </Col>
+                <Col xs={24} lg={12}>
+                  <Card className="section-card" title="当前状态">
+                    {selectedRecord ? (
+                      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Text type="secondary">最后更新</Text>
+                          <Text strong>{new Date(selectedRecord.timestamp).toLocaleString('zh-CN')}</Text>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Text type="secondary">异常类型</Text>
+                          <Text strong>{selectedRecord.diagnosis?.label || '未诊断'}</Text>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Text type="secondary">复核状态</Text>
+                          <Text strong>待人工确认</Text>
+                        </div>
+                        <Tag color={selectedRecord.diagnosis?.label === '正常' ? 'green' : 'red'}>
+                          {selectedRecord.diagnosis?.label === '正常' ? '建议常规随访' : '建议优先处理'}
+                        </Tag>
+                      </Space>
+                    ) : (
+                      <Empty description="暂无状态数据" />
+                    )}
+                  </Card>
+                </Col>
+              </Row>
+            </Space>
+          </Col>
+        </Row>
+      )}
     </div>
   );
 };
 
 export default CaseDetail;
-

@@ -1,23 +1,27 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Table,
   Button,
-  Input,
-  Space,
-  Tag,
-  Modal,
+  Card,
+  Col,
   Form,
-  Select,
+  Input,
   InputNumber,
   message,
-  Card,
+  Modal,
+  Row,
+  Select,
+  Space,
+  Statistic,
+  Table,
+  Tag,
   Typography,
+  Spin,
 } from 'antd';
-import { PlusOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
+import { EditOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import { Patient } from '../types';
-import { mockPatients } from '../data/mockClinic';
+import { createPatient, getPatients, PatientsResponse } from '../services/clinicApi';
 
 const { Search } = Input;
 const { Title, Text } = Typography;
@@ -30,21 +34,91 @@ type CreatePatientForm = {
 
 const CaseList: React.FC = () => {
   const navigate = useNavigate();
-  const [patients, setPatients] = useState<Patient[]>(mockPatients);
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [searchText, setSearchText] = useState('');
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [sourceLabel, setSourceLabel] = useState('加载中');
   const [form] = Form.useForm<CreatePatientForm>();
 
-  const filteredPatients = patients.filter((patient) => {
+  useEffect(() => {
+    let mounted = true;
+
+    getPatients()
+      .then((response: PatientsResponse) => {
+        if (!mounted) {
+          return;
+        }
+
+        setPatients(response.patients);
+        setSourceLabel(response.sourceLabel);
+      })
+      .catch(() => {
+        if (!mounted) {
+          return;
+        }
+
+        setPatients([]);
+        setSourceLabel('本地 mock 数据');
+        message.error('病例数据加载失败');
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const filteredPatients = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
     if (!keyword) {
-      return true;
+      return patients;
     }
 
-    return (
-      patient.name.toLowerCase().includes(keyword) || patient.id.toLowerCase().includes(keyword)
-    );
-  });
+    return patients.filter((patient) => {
+      const diagnosisText = patient.records
+        .map((record) => record.diagnosis?.label || '')
+        .join(' ')
+        .toLowerCase();
+
+      return (
+        patient.name.toLowerCase().includes(keyword) ||
+        patient.id.toLowerCase().includes(keyword) ||
+        diagnosisText.includes(keyword)
+      );
+    });
+  }, [patients, searchText]);
+
+  const caseMetrics = [
+    {
+      title: '患者总数',
+      value: patients.length,
+      note: sourceLabel === '本地 mock API' ? '来自本地 mock API' : '本地兜底数据',
+      accent: 'metric-card--blue',
+    },
+    {
+      title: '活跃病例',
+      value: patients.filter((patient) => patient.records.some((record) => record.annotations.length > 0)).length,
+      note: '过去 48 小时有更新',
+      accent: 'metric-card--teal',
+    },
+    {
+      title: '待标注',
+      value: patients.reduce((sum, patient) => sum + patient.records.filter((record) => record.annotations.length === 0).length, 0),
+      note: '优先级从高到低排序',
+      accent: 'metric-card--amber',
+    },
+    {
+      title: '新建速度',
+      value: Math.max(patients.length, 0),
+      note: '当前会话新增病例数',
+      accent: 'metric-card--rose',
+    },
+  ];
 
   const columns: ColumnsType<Patient> = [
     {
@@ -71,14 +145,14 @@ const CaseList: React.FC = () => {
       key: 'gender',
       width: 80,
       render: (gender: Patient['gender']) => (
-        <Tag color={gender === 'M' ? 'blue' : 'pink'}>{gender === 'M' ? '男' : '女'}</Tag>
+        <Tag color={gender === 'M' ? 'blue' : 'magenta'}>{gender === 'M' ? '男' : '女'}</Tag>
       ),
     },
     {
       title: '记录数',
       key: 'recordCount',
       width: 100,
-      render: (_, record) => record.records.length,
+      render: (_, record) => <Tag color="purple">{record.records.length}</Tag>,
     },
     {
       title: '更新时间',
@@ -107,31 +181,54 @@ const CaseList: React.FC = () => {
     },
   ];
 
-  const handleAddPatient = (values: CreatePatientForm) => {
-    const newPatient: Patient = {
-      id: `P${String(patients.length + 1).padStart(3, '0')}`,
-      ...values,
-      records: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    setPatients((current) => [...current, newPatient]);
-    setIsModalVisible(false);
-    form.resetFields();
-    message.success('患者已创建');
+  const handleAddPatient = async (values: CreatePatientForm) => {
+    try {
+      const newPatient = await createPatient(values);
+      setPatients((current) => [newPatient, ...current]);
+      setIsModalVisible(false);
+      form.resetFields();
+      message.success('患者已创建');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '创建患者失败');
+    }
   };
 
   return (
-    <div style={{ padding: 24 }}>
-      <Space direction="vertical" size={2} style={{ marginBottom: 18 }}>
-        <Title level={3} style={{ margin: 0 }}>
-          病例管理
-        </Title>
-        <Text type="secondary">查询、创建并进入患者的标注流程</Text>
-      </Space>
+    <div className="page-shell page-shell-wide">
+      <section className="page-hero">
+        <div className="page-kicker">Registry</div>
+        <Title className="page-title">病例管理</Title>
+        <Text className="page-subtitle">
+          现在列表页直接从本地 mock API 获取患者数据，创建患者也会走同一条接口路径。这样后续替换成真实后端时，前端变化会更小。
+        </Text>
+        <Space wrap>
+          <Tag color={sourceLabel === '本地 mock API' ? 'blue' : 'gold'}>{sourceLabel}</Tag>
+        </Space>
+        <div className="page-actions">
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalVisible(true)}>
+            新建患者
+          </Button>
+          <Button onClick={() => setSearchText('')}>清空搜索</Button>
+        </div>
+      </section>
 
-      <Card>
+      <Row gutter={[16, 16]} className="stat-grid" style={{ marginTop: 18 }}>
+        {caseMetrics.map((metric) => (
+          <Col xs={24} sm={12} xl={6} key={metric.title}>
+            <Card className={`metric-card ${metric.accent}`}>
+              <Statistic
+                title={<span className="metric-label">{metric.title}</span>}
+                value={metric.value}
+                valueStyle={{ display: 'none' }}
+              />
+              <div className="metric-value">{metric.value}</div>
+              <div className="metric-note">{metric.note}</div>
+            </Card>
+          </Col>
+        ))}
+      </Row>
+
+      <Card className="section-card" style={{ marginTop: 18 }}>
         <div
           style={{
             marginBottom: 16,
@@ -139,27 +236,39 @@ const CaseList: React.FC = () => {
             justifyContent: 'space-between',
             gap: 12,
             flexWrap: 'wrap',
+            alignItems: 'center',
           }}
         >
-          <Search
-            placeholder="搜索患者姓名或 ID"
-            onSearch={(value) => setSearchText(value)}
-            onChange={(event) => setSearchText(event.target.value)}
-            style={{ width: 320, maxWidth: '100%' }}
-            allowClear
-          />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalVisible(true)}>
-            新建患者
-          </Button>
+          <div style={{ minWidth: 280, flex: '1 1 320px' }}>
+            <Search
+              placeholder="搜索患者姓名、ID 或诊断"
+              onSearch={(value) => setSearchText(value)}
+              onChange={(event) => setSearchText(event.target.value)}
+              allowClear
+            />
+          </div>
+          <Space wrap>
+            <Text type="secondary">当前筛选结果</Text>
+            <Tag color="blue">{filteredPatients.length} 位患者</Tag>
+          </Space>
         </div>
 
-        <Table
-          columns={columns}
-          dataSource={filteredPatients}
-          rowKey="id"
-          pagination={{ pageSize: 10 }}
-          scroll={{ x: 860 }}
-        />
+        {loading ? (
+          <div style={{ minHeight: 220, display: 'grid', placeItems: 'center' }}>
+            <Spin size="large" />
+          </div>
+        ) : (
+          <div className="glass-panel" style={{ padding: 16 }}>
+            <Table
+              className="table-card"
+              columns={columns}
+              dataSource={filteredPatients}
+              rowKey="id"
+              pagination={{ pageSize: 10 }}
+              scroll={{ x: 860 }}
+            />
+          </div>
+        )}
       </Card>
 
       <Modal
