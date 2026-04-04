@@ -21,11 +21,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
-import type {
-  FilterValue,
-  SorterResult,
-  TablePaginationConfig,
-} from 'antd/es/table/interface';
+import type { FilterValue, SorterResult, TablePaginationConfig } from 'antd/es/table/interface';
 import { Patient } from '../../types';
 
 interface CaseListTableProps {
@@ -35,9 +31,7 @@ interface CaseListTableProps {
   onPatientClick?: (patient: Patient) => void;
   onPatientEdit?: (patient: Patient) => void;
   onPatientDelete?: (patientId: string) => void;
-  onAddPatient?: (
-    patient: Omit<Patient, 'id' | 'records' | 'createdAt' | 'updatedAt'>
-  ) => void;
+  onAddPatient?: (patient: Omit<Patient, 'id' | 'records' | 'createdAt' | 'updatedAt'>) => void;
 }
 
 interface TableParams {
@@ -77,9 +71,7 @@ export const CaseListTable: React.FC<CaseListTableProps> = ({
 
   const filteredPatients = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
-    if (!keyword) {
-      return patients;
-    }
+    if (!keyword) return patients;
 
     return patients.filter((patient) => {
       const diagnosisText = patient.records
@@ -109,10 +101,23 @@ export const CaseListTable: React.FC<CaseListTableProps> = ({
         title: '姓名',
         dataIndex: 'name',
         key: 'name',
-        width: 120,
+        width: 140,
         sorter: (a, b) => a.name.localeCompare(b.name),
         render: (name: string, record: Patient) => (
-          <a onClick={() => onPatientClick?.(record)}>{name}</a>
+          <button
+            type="button"
+            onClick={() => onPatientClick?.(record)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--brand-strong)',
+              padding: 0,
+              cursor: 'pointer',
+              font: 'inherit',
+            }}
+          >
+            {name}
+          </button>
         ),
       },
       {
@@ -133,9 +138,7 @@ export const CaseListTable: React.FC<CaseListTableProps> = ({
         ],
         onFilter: (value, record) => record.gender === value,
         render: (gender: Patient['gender']) => (
-          <Tag color={gender === 'M' ? 'blue' : 'pink'}>
-            {gender === 'M' ? '男' : '女'}
-          </Tag>
+          <Tag color={gender === 'M' ? 'blue' : 'magenta'}>{gender === 'M' ? '男' : '女'}</Tag>
         ),
       },
       {
@@ -151,17 +154,11 @@ export const CaseListTable: React.FC<CaseListTableProps> = ({
         width: 180,
         render: (_, record) => {
           const latestRecord = record.records[0];
-          if (!latestRecord?.diagnosis) {
-            return <Tag>暂无诊断</Tag>;
-          }
+          if (!latestRecord?.diagnosis) return <Tag>暂无诊断</Tag>;
 
           const { label, confidence } = latestRecord.diagnosis;
           const color = confidence > 0.8 ? 'red' : confidence > 0.5 ? 'orange' : 'green';
-          return (
-            <Tag color={color}>
-              {label} ({Math.round(confidence * 100)}%)
-            </Tag>
-          );
+          return <Tag color={color}>{label} ({Math.round(confidence * 100)}%)</Tag>;
         },
       },
       {
@@ -169,8 +166,7 @@ export const CaseListTable: React.FC<CaseListTableProps> = ({
         dataIndex: 'updatedAt',
         key: 'updatedAt',
         width: 180,
-        sorter: (a, b) =>
-          new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime(),
+        sorter: (a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime(),
         render: (date: string) => new Date(date).toLocaleString('zh-CN'),
       },
       {
@@ -180,20 +176,10 @@ export const CaseListTable: React.FC<CaseListTableProps> = ({
         fixed: 'right',
         render: (_, record) => (
           <Space size="small">
-            <Button
-              type="link"
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => navigate(`/cases/${record.id}`)}
-            >
+            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/cases/${record.id}`)}>
               查看
             </Button>
-            <Button
-              type="link"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => onPatientEdit?.(record)}
-            >
+            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => onPatientEdit?.(record)}>
               编辑
             </Button>
             <Popconfirm
@@ -238,7 +224,7 @@ export const CaseListTable: React.FC<CaseListTableProps> = ({
   };
 
   return (
-    <div>
+    <div className="section-card" style={{ padding: 16 }}>
       <div
         style={{
           marginBottom: 16,
@@ -246,6 +232,7 @@ export const CaseListTable: React.FC<CaseListTableProps> = ({
           justifyContent: 'space-between',
           gap: 12,
           flexWrap: 'wrap',
+          alignItems: 'center',
         }}
       >
         <Space wrap>
@@ -260,16 +247,13 @@ export const CaseListTable: React.FC<CaseListTableProps> = ({
           {onRefresh ? <Button onClick={onRefresh}>刷新</Button> : null}
         </Space>
 
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setIsModalVisible(true)}
-        >
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalVisible(true)}>
           新建患者
         </Button>
       </div>
 
       <Table
+        className="table-card"
         columns={columns}
         dataSource={filteredPatients}
         rowKey="id"
@@ -298,25 +282,13 @@ export const CaseListTable: React.FC<CaseListTableProps> = ({
         cancelText="取消"
       >
         <Form<CreatePatientForm> form={form} layout="vertical" onFinish={handleAddPatient}>
-          <Form.Item
-            name="name"
-            label="姓名"
-            rules={[{ required: true, message: '请输入患者姓名' }]}
-          >
+          <Form.Item name="name" label="姓名" rules={[{ required: true, message: '请输入患者姓名' }]}>
             <Input placeholder="请输入患者姓名" />
           </Form.Item>
-          <Form.Item
-            name="age"
-            label="年龄"
-            rules={[{ required: true, message: '请输入患者年龄' }]}
-          >
+          <Form.Item name="age" label="年龄" rules={[{ required: true, message: '请输入患者年龄' }]}>
             <InputNumber min={0} max={150} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item
-            name="gender"
-            label="性别"
-            rules={[{ required: true, message: '请选择性别' }]}
-          >
+          <Form.Item name="gender" label="性别" rules={[{ required: true, message: '请选择性别' }]}>
             <Select
               placeholder="请选择性别"
               options={[

@@ -679,284 +679,168 @@ const AnnotationStudio: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 24, height: '100%' }}>
-      <Space direction="vertical" size={2} style={{ marginBottom: 18 }}>
-        <Title level={3} style={{ margin: 0 }}>
-          标注工作台
-        </Title>
-        <Text type="secondary">导入心电数据、执行 AI 推理并完成人工标注</Text>
-        <Space wrap size={[8, 8]}>
-          <Tag color={currentPatientId ? 'blue' : 'default'}>
+    <div className="page-shell page-shell-wide">
+      <section className="page-hero">
+        <div className="page-kicker">Workbench</div>
+        <Title className="page-title">标注工作台</Title>
+        <Text className="page-subtitle">
+          导入心电数据、执行 AI 推理并完成人工标注。这个页面需要承载最高的信息密度，所以我把流程、操作和分析拆成了更清晰的层次。
+        </Text>
+        <div className="page-actions">
+          <Tag color={currentPatientId ? 'blue' : 'default'} className="app-header-tag">
             当前患者: {currentPatientId || '未绑定'}
           </Tag>
-          <Tag color={currentRecordId ? 'green' : 'default'}>
+          <Tag color={currentRecordId ? 'green' : 'default'} className="app-header-tag">
             当前记录: {currentRecordId || '自动生成'}
           </Tag>
-          <Tag color="geekblue">支持格式: JSON / DICOM / HL7 / WFDB</Tag>
-        </Space>
-      </Space>
+          <Tag color="geekblue" className="app-header-tag">
+            支持格式: JSON / DICOM / HL7 / WFDB
+          </Tag>
+        </div>
+      </section>
 
-      <Row gutter={[16, 16]} style={{ minHeight: 'calc(100% - 54px)' }}>
-        <Col xs={24} lg={6} xxl={5}>
-          <Card title="使用流程" size="small" style={{ marginBottom: 16 }}>
-            <Space direction="vertical" size={6} style={{ width: '100%' }}>
-              <Text type="secondary">1. 导入 JSON、DICOM、HL7 或 WFDB 数据。</Text>
-              <Text type="secondary">2. 选择导联，必要时调整 R 峰阈值与回放窗口。</Text>
-              <Text type="secondary">3. 切换到标注模式，在波形上完成人工修订。</Text>
-              <Text type="secondary">4. 运行 AI 或 Minimax 分析，再导出 JSON / CSV。</Text>
-            </Space>
-          </Card>
+      <Row gutter={[16, 16]} style={{ marginTop: 18 }}>
+        <Col xs={24} xl={5}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Card className="section-card" title="使用流程">
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Text type="secondary">1. 导入 JSON、DICOM、HL7 或 WFDB 数据。</Text>
+                <Text type="secondary">2. 选择导联，必要时调整 R 峰阈值与回放窗口。</Text>
+                <Text type="secondary">3. 切换到标注模式，在波形上完成人工修订。</Text>
+                <Text type="secondary">4. 运行 AI 或 Minimax 分析，再导出 JSON / CSV。</Text>
+              </Space>
+            </Card>
 
-          <Card title="数据导入" size="small">
-            <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }}>
-              <Input
-                placeholder="粘贴 GitHub Raw JSON 链接"
-                value={githubRawUrl}
-                onChange={(event) => setGithubRawUrl(event.target.value)}
-              />
-              <Button icon={<LinkOutlined />} onClick={handleGithubUrlImport} loading={importing} block>
-                从 URL 导入
-              </Button>
-            </Space>
+            <Card className="section-card" title="数据导入">
+              <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }}>
+                <Input
+                  placeholder="粘贴 GitHub Raw JSON 链接"
+                  value={githubRawUrl}
+                  onChange={(event) => setGithubRawUrl(event.target.value)}
+                />
+                <Button icon={<LinkOutlined />} onClick={handleGithubUrlImport} loading={importing} block>
+                  从 URL 导入
+                </Button>
+              </Space>
 
-            <Upload.Dragger
-              accept=".json,.dcm,.hl7,.hea,.dat"
-              beforeUpload={handleFileUpload}
-              multiple
-              disabled={importing}
-              showUploadList={false}
-            >
-              <p className="ant-upload-drag-icon">
-                <CloudUploadOutlined style={{ fontSize: 48, color: '#1890ff' }} />
-              </p>
-              <p>点击或拖拽文件上传</p>
-              <p style={{ fontSize: 12, color: '#888' }}>
-                单文件支持 JSON / DICOM / HL7，WFDB 需同时提供 .hea 与 .dat
-              </p>
-            </Upload.Dragger>
-
-            <div style={{ marginTop: 12 }}>
               <Upload.Dragger
-                accept=".hea,.dat"
-                beforeUpload={handleMitbihFolderUpload}
+                className="glass-panel"
+                accept=".json,.dcm,.hl7,.hea,.dat"
+                beforeUpload={handleFileUpload}
                 multiple
-                directory
                 disabled={importing}
                 showUploadList={false}
               >
                 <p className="ant-upload-drag-icon">
-                  <CloudUploadOutlined style={{ fontSize: 36, color: '#16a34a' }} />
+                  <CloudUploadOutlined style={{ fontSize: 42, color: '#275ef1' }} />
                 </p>
-                <p>MIT-BIH 一键批量导入（选择文件夹）</p>
-                <p style={{ fontSize: 12, color: '#888' }}>
-                  仅识别三位数字记录名（如 100.hea + 100.dat）
+                <p>点击或拖拽文件上传</p>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  单文件支持 JSON / DICOM / HL7，WFDB 需同时提供 .hea 与 .dat
                 </p>
               </Upload.Dragger>
-            </div>
 
-            {wfdbBatches.length > 0 ? (
               <div style={{ marginTop: 12 }}>
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: '#666',
-                    marginBottom: 8,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
+                <Upload.Dragger
+                  className="glass-panel"
+                  accept=".hea,.dat"
+                  beforeUpload={handleMitbihFolderUpload}
+                  multiple
+                  directory
+                  disabled={importing}
+                  showUploadList={false}
                 >
-                  <span>已解析 WFDB 记录（可切换加载）:</span>
-                  <Button size="small" onClick={() => setWfdbBatches([])}>
-                    清空记录
-                  </Button>
-                </div>
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  {wfdbBatches.map((batch) => (
-                    <Button
-                      key={batch.id}
-                      size="small"
-                      onClick={() =>
-                        applyImportedLeads(batch.leads, {
-                          recordId: batch.id,
-                          patientId: currentPatientId || undefined,
-                        })
-                      }
-                      style={{ textAlign: 'left' }}
-                    >
-                      {batch.id} · {batch.leads.length} 导联
-                    </Button>
-                  ))}
-                </Space>
+                  <p className="ant-upload-drag-icon">
+                    <CloudUploadOutlined style={{ fontSize: 34, color: '#0f9d9a' }} />
+                  </p>
+                  <p>MIT-BIH 一键批量导入（选择文件夹）</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    仅识别三位数字记录名（如 100.hea + 100.dat）
+                  </p>
+                </Upload.Dragger>
               </div>
-            ) : null}
-          </Card>
 
-          <Card title="标注工具" size="small" style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 12, color: '#637287', marginBottom: 10 }}>
-              先选择标注类型，再在波形区双击落点；删除时先单击选中标注。
-            </div>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Button
-                type={activeTool === 'annotate' && activeAnnotationType === 'P' ? 'primary' : 'default'}
-                block
-                onClick={() => handleSelectAnnotationType('P')}
-              >
-                标注 P 波 (Ctrl+1)
-              </Button>
-              <Button
-                type={activeTool === 'annotate' && activeAnnotationType === 'R' ? 'primary' : 'default'}
-                block
-                onClick={() => handleSelectAnnotationType('R')}
-              >
-                标注 QRS (Ctrl+2)
-              </Button>
-              <Button
-                type={activeTool === 'annotate' && activeAnnotationType === 'T' ? 'primary' : 'default'}
-                block
-                onClick={() => handleSelectAnnotationType('T')}
-              >
-                标注 T 波 (Ctrl+3)
-              </Button>
-              <Button block onClick={() => setActiveTool('pan')}>
-                切换平移模式
-              </Button>
-              <Button block danger onClick={handleDeleteAnnotation}>
-                删除已选标注
-              </Button>
-            </Space>
-          </Card>
+              {wfdbBatches.length > 0 ? (
+                <div style={{ marginTop: 12 }}>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--text-muted)',
+                      marginBottom: 8,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <span>已解析 WFDB 记录（可切换加载）</span>
+                    <Button size="small" onClick={() => setWfdbBatches([])}>
+                      清空
+                    </Button>
+                  </div>
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    {wfdbBatches.map((batch) => (
+                      <Button
+                        key={batch.id}
+                        size="small"
+                        onClick={() =>
+                          applyImportedLeads(batch.leads, {
+                            recordId: batch.id,
+                            patientId: currentPatientId || undefined,
+                          })
+                        }
+                        style={{ textAlign: 'left' }}
+                      >
+                        {batch.id} · {batch.leads.length} 导联
+                      </Button>
+                    ))}
+                  </Space>
+                </div>
+              ) : null}
+            </Card>
 
-          <Card title="智能辅助" size="small" style={{ marginTop: 16 }}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <select
-                value={analysisLeadName}
-                onChange={(event) => setAnalysisLeadName(event.target.value)}
-                style={{
-                  width: '100%',
-                  height: 32,
-                  borderRadius: 6,
-                  border: '1px solid #d9d9d9',
-                  padding: '0 8px',
-                }}
-              >
-                {leads.map((lead) => (
-                  <option key={lead.name} value={lead.name}>
-                    {lead.name}
-                  </option>
-                ))}
-              </select>
-              <Input
-                size="small"
-                type="number"
-                min={0.2}
-                max={0.95}
-                step={0.05}
-                value={peakThreshold}
-                onChange={(event) => setPeakThreshold(Number(event.target.value))}
-                placeholder="R 峰阈值 (0.2 - 0.95)"
-              />
-              <Button onClick={handleAutoDetectRPeaks} block>
-                自动检测 R 峰
-              </Button>
-              <Button onClick={() => handleExportCurrentRecord('json')} block>
-                导出当前记录 JSON
-              </Button>
-              <Button onClick={() => handleExportCurrentRecord('csv')} block>
-                导出当前记录 CSV
-              </Button>
-            </Space>
-          </Card>
-
-          <Card title="动态回放" size="small" style={{ marginTop: 16 }}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Button onClick={() => setPlaybackEnabled((previous) => !previous)} block>
-                {playbackEnabled ? '暂停动态回放' : '启动动态回放'}
-              </Button>
-              <Input
-                size="small"
-                type="number"
-                min={4}
-                max={240}
-                step={4}
-                value={playbackStep}
-                onChange={(event) => setPlaybackStep(Math.max(4, Number(event.target.value) || 4))}
-                placeholder="回放速度（每帧步长）"
-              />
-              <Input
-                size="small"
-                type="number"
-                min={300}
-                max={6000}
-                step={100}
-                value={playbackWindowSize}
-                onChange={(event) =>
-                  setPlaybackWindowSize(Math.max(300, Number(event.target.value) || DEFAULT_PLAYBACK_WINDOW))
-                }
-                placeholder="窗口长度（样本点）"
-              />
-              <Button
-                onClick={() => {
-                  setPlaybackCursor(0);
-                  setLeads(buildStreamingLeads(sourceLeadsRef.current, 0, playbackWindowSize));
-                }}
-                block
-              >
-                回放重置到起点
-              </Button>
-              <Text type="secondary">当前游标: {playbackCursor}</Text>
-            </Space>
-          </Card>
-
-          <Card title="AI 辅助" size="small" style={{ marginTop: 16 }}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Button icon={<RobotOutlined />} onClick={handleModelLoad} loading={modelLoading} block>
-                {modelLoaded ? '模型已加载' : '加载模型'}
-              </Button>
-              <Button
-                icon={<ThunderboltOutlined />}
-                onClick={handleAnalyze}
-                disabled={!modelLoaded}
-                loading={isAnalyzing}
-                block
-              >
-                AI 分析
-              </Button>
-              <Input
-                size="small"
-                placeholder="Minimax Endpoint (可选)"
-                value={minimaxEndpoint}
-                onChange={(event) => setMinimaxEndpoint(event.target.value)}
-              />
-              <Input.Password
-                size="small"
-                placeholder="Minimax API Key (可选)"
-                value={minimaxApiKey}
-                onChange={(event) => setMinimaxApiKey(event.target.value)}
-              />
-              <Input
-                size="small"
-                placeholder="Minimax Model (可选)"
-                value={minimaxModel}
-                onChange={(event) => setMinimaxModel(event.target.value)}
-              />
-              <Button
-                onClick={handleMinimaxAnalyze}
-                loading={minimaxLoading}
-                disabled={isAnalyzing || modelLoading}
-                block
-              >
-                调用 Minimax API
-              </Button>
-            </Space>
-          </Card>
+            <Card className="section-card" title="标注工具">
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                先选择标注类型，再在波形区双击落点；删除时先单击选中标注。
+              </div>
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Button
+                  type={activeTool === 'annotate' && activeAnnotationType === 'P' ? 'primary' : 'default'}
+                  block
+                  onClick={() => handleSelectAnnotationType('P')}
+                >
+                  标注 P 波 (Ctrl+1)
+                </Button>
+                <Button
+                  type={activeTool === 'annotate' && activeAnnotationType === 'R' ? 'primary' : 'default'}
+                  block
+                  onClick={() => handleSelectAnnotationType('R')}
+                >
+                  标注 QRS (Ctrl+2)
+                </Button>
+                <Button
+                  type={activeTool === 'annotate' && activeAnnotationType === 'T' ? 'primary' : 'default'}
+                  block
+                  onClick={() => handleSelectAnnotationType('T')}
+                >
+                  标注 T 波 (Ctrl+3)
+                </Button>
+                <Button block onClick={() => setActiveTool('pan')}>
+                  切换平移模式
+                </Button>
+                <Button block danger onClick={handleDeleteAnnotation}>
+                  删除已选标注
+                </Button>
+              </Space>
+            </Card>
+          </Space>
         </Col>
 
-        <Col xs={24} lg={12} xxl={13}>
-          <Card title="ECG 波形显示" style={{ height: '100%' }}>
+        <Col xs={24} xl={11}>
+          <Card className="workspace-card" title="ECG 波形显示" style={{ height: '100%' }}>
             <ECGCanvas
               leads={leads}
-              height={500}
+              height={520}
               controlledTool={activeTool}
               annotationType={activeAnnotationType}
               deleteSignal={deleteSignal}
@@ -964,65 +848,213 @@ const AnnotationStudio: React.FC = () => {
           </Card>
         </Col>
 
-        <Col xs={24} lg={6}>
-          <Card title="信号概览" size="small" style={{ marginBottom: 16 }}>
-            {leads.length > 0 ? (
-              <Space direction="vertical" style={{ width: '100%' }} size={4}>
-                <Text>导联数: {leads.length}</Text>
-                <Text>采样率: {leads[0]?.samplingRate || 0} Hz</Text>
-                <Text>样本数: {leads[0]?.data.length || 0}</Text>
-                <Text>
-                  信号质量:
-                  {Math.round(calculateSignalQuality(getActiveLead().data))}%
-                </Text>
-                <Text>总标注数: {annotations.length}</Text>
-                <Text>R峰标注: {annotations.filter((item) => item.type === 'R').length}</Text>
+        <Col xs={24} xl={8}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Card className="section-card" title="智能辅助">
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <select
+                  value={analysisLeadName}
+                  onChange={(event) => setAnalysisLeadName(event.target.value)}
+                  style={{
+                    width: '100%',
+                    height: 40,
+                    borderRadius: 12,
+                    border: '1px solid rgba(26, 43, 67, 0.14)',
+                    padding: '0 12px',
+                    background: 'rgba(255,255,255,0.9)',
+                  }}
+                >
+                  {leads.map((lead) => (
+                    <option key={lead.name} value={lead.name}>
+                      {lead.name}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  size="small"
+                  type="number"
+                  min={0.2}
+                  max={0.95}
+                  step={0.05}
+                  value={peakThreshold}
+                  onChange={(event) => setPeakThreshold(Number(event.target.value))}
+                  placeholder="R 峰阈值 (0.2 - 0.95)"
+                />
+                <Button onClick={handleAutoDetectRPeaks} block>
+                  自动检测 R 峰
+                </Button>
+                <Space wrap style={{ width: '100%' }}>
+                  <Button onClick={() => handleExportCurrentRecord('json')} block>
+                    导出当前记录 JSON
+                  </Button>
+                  <Button onClick={() => handleExportCurrentRecord('csv')} block>
+                    导出当前记录 CSV
+                  </Button>
+                </Space>
               </Space>
-            ) : (
-              <div style={{ textAlign: 'center', color: '#888', padding: 16 }}>暂无信号数据</div>
-            )}
-          </Card>
+            </Card>
 
-          <Card title="AI 诊断结果" size="small">
-            {inferenceResults.length > 0 ? (
-              <List
-                dataSource={inferenceResults}
-                renderItem={(item) => (
-                  <List.Item>
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                      <Tag color={item.probability > 0.5 ? 'red' : 'blue'}>{item.className}</Tag>
-                      <Progress
-                        percent={Math.round(item.probability * 100)}
-                        size="small"
-                        status={item.probability > 0.5 ? 'exception' : 'normal'}
-                      />
-                    </Space>
-                  </List.Item>
-                )}
-              />
-            ) : (
-              <div style={{ textAlign: 'center', color: '#888', padding: 24 }}>
-                请先加载模型并运行分析
-              </div>
-            )}
-          </Card>
+            <Card className="section-card" title="动态回放">
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Button onClick={() => setPlaybackEnabled((previous) => !previous)} block>
+                  {playbackEnabled ? '暂停动态回放' : '启动动态回放'}
+                </Button>
+                <Input
+                  size="small"
+                  type="number"
+                  min={4}
+                  max={240}
+                  step={4}
+                  value={playbackStep}
+                  onChange={(event) => setPlaybackStep(Math.max(4, Number(event.target.value) || 4))}
+                  placeholder="回放速度（每帧步长）"
+                />
+                <Input
+                  size="small"
+                  type="number"
+                  min={300}
+                  max={6000}
+                  step={100}
+                  value={playbackWindowSize}
+                  onChange={(event) =>
+                    setPlaybackWindowSize(Math.max(300, Number(event.target.value) || DEFAULT_PLAYBACK_WINDOW))
+                  }
+                  placeholder="窗口长度（样本点）"
+                />
+                <Button
+                  onClick={() => {
+                    setPlaybackCursor(0);
+                    setLeads(buildStreamingLeads(sourceLeadsRef.current, 0, playbackWindowSize));
+                  }}
+                  block
+                >
+                  回放重置到起点
+                </Button>
+                <Text type="secondary">当前游标: {playbackCursor}</Text>
+              </Space>
+            </Card>
 
-          <Card title="标注列表" size="small" style={{ marginTop: 16 }}>
-            {annotations.length > 0 ? (
-              <List
-                size="small"
-                dataSource={annotations}
-                renderItem={(item) => (
-                  <List.Item>
-                    <Tag color="blue">{item.type}</Tag>
-                    <span>位置: {Math.round(item.position)}</span>
-                  </List.Item>
-                )}
-              />
-            ) : (
-              <div style={{ textAlign: 'center', color: '#888', padding: 24 }}>暂无标注</div>
-            )}
-          </Card>
+            <Card className="section-card" title="AI 辅助">
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Button icon={<RobotOutlined />} onClick={handleModelLoad} loading={modelLoading} block>
+                  {modelLoaded ? '模型已加载' : '加载模型'}
+                </Button>
+                <Button
+                  icon={<ThunderboltOutlined />}
+                  onClick={handleAnalyze}
+                  disabled={!modelLoaded}
+                  loading={isAnalyzing}
+                  block
+                >
+                  AI 分析
+                </Button>
+                <Input
+                  size="small"
+                  placeholder="Minimax Endpoint (可选)"
+                  value={minimaxEndpoint}
+                  onChange={(event) => setMinimaxEndpoint(event.target.value)}
+                />
+                <Input.Password
+                  size="small"
+                  placeholder="Minimax API Key (可选)"
+                  value={minimaxApiKey}
+                  onChange={(event) => setMinimaxApiKey(event.target.value)}
+                />
+                <Input
+                  size="small"
+                  placeholder="Minimax Model (可选)"
+                  value={minimaxModel}
+                  onChange={(event) => setMinimaxModel(event.target.value)}
+                />
+                <Button
+                  onClick={handleMinimaxAnalyze}
+                  loading={minimaxLoading}
+                  disabled={isAnalyzing || modelLoading}
+                  block
+                >
+                  调用 Minimax API
+                </Button>
+              </Space>
+            </Card>
+
+            <Card className="section-card" title="信号概览">
+              {leads.length > 0 ? (
+                <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Text type="secondary">导联数</Text>
+                    <Text strong>{leads.length}</Text>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Text type="secondary">采样率</Text>
+                    <Text strong>{leads[0]?.samplingRate || 0} Hz</Text>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Text type="secondary">样本数</Text>
+                    <Text strong>{leads[0]?.data.length || 0}</Text>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Text type="secondary">信号质量</Text>
+                    <Text strong>{Math.round(calculateSignalQuality(getActiveLead().data))}%</Text>
+                  </div>
+                  <Progress
+                    percent={Math.round(calculateSignalQuality(getActiveLead().data))}
+                    strokeColor={{ from: '#275ef1', to: '#0f9d9a' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Text type="secondary">总标注数</Text>
+                    <Text strong>{annotations.length}</Text>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Text type="secondary">R 峰标注</Text>
+                    <Text strong>{annotations.filter((item) => item.type === 'R').length}</Text>
+                  </div>
+                </Space>
+              ) : (
+                <div className="empty-panel">暂无信号数据</div>
+              )}
+            </Card>
+
+            <Card className="section-card" title="AI 诊断结果">
+              {inferenceResults.length > 0 ? (
+                <List
+                  dataSource={inferenceResults}
+                  renderItem={(item) => (
+                    <List.Item style={{ paddingInline: 0 }}>
+                      <Space direction="vertical" style={{ width: '100%' }}>
+                        <Tag color={item.probability > 0.5 ? 'red' : 'blue'}>{item.className}</Tag>
+                        <Progress
+                          percent={Math.round(item.probability * 100)}
+                          size="small"
+                          status={item.probability > 0.5 ? 'exception' : 'normal'}
+                        />
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              ) : (
+                <div className="empty-panel">请先加载模型并运行分析</div>
+              )}
+            </Card>
+
+            <Card className="section-card" title="标注列表">
+              {annotations.length > 0 ? (
+                <List
+                  size="small"
+                  dataSource={annotations}
+                  renderItem={(item) => (
+                    <List.Item style={{ paddingInline: 0 }}>
+                      <Space>
+                        <Tag color="blue">{item.type}</Tag>
+                        <span>位置: {Math.round(item.position)}</span>
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              ) : (
+                <div className="empty-panel">暂无标注</div>
+              )}
+            </Card>
+          </Space>
         </Col>
       </Row>
     </div>
