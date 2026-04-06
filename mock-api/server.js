@@ -1,4 +1,4 @@
-const fs = require('fs');
+﻿const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { URL } = require('url');
@@ -18,6 +18,7 @@ const writeDatabase = (db) => {
 };
 
 let database = readDatabase();
+const sourceLabel = database.sourceLabel || 'PTB-XL 20 条备份';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -64,11 +65,12 @@ const expandRecord = (record) => {
     return null;
   }
 
-  const { leadSet = [], ...rest } = record;
+  const { leadSet = [], annotations = [], ...rest } = record;
 
   return {
     ...rest,
     leads: leadSet.map(buildLead),
+    annotations,
   };
 };
 
@@ -113,18 +115,18 @@ const buildDashboardSummary = () => {
   );
 
   return {
-    sourceLabel: '本地 mock API',
+    sourceLabel,
     metrics: [
       {
-        title: '总病例数',
+        title: '患者总数',
         value: totalCases,
-        note: '本地服务实时返回',
+        note: '来自本地 PTB-XL 备份',
         accent: 'metric-card--blue',
       },
       {
         title: '总心电图数',
         value: totalRecords,
-        note: '已展开可用记录',
+        note: '已展开的记录总数',
         accent: 'metric-card--teal',
       },
       {
@@ -236,7 +238,7 @@ const handler = async (req, res) => {
   }
 
   if (pathname === '/api/patients' && req.method === 'GET') {
-    sendJson(res, 200, { sourceLabel: '本地 mock API', patients: listPatients() });
+    sendJson(res, 200, { sourceLabel, patients: listPatients() });
     return;
   }
 
@@ -248,7 +250,7 @@ const handler = async (req, res) => {
     }
 
     const patient = await createPatient(body);
-    sendJson(res, 201, { sourceLabel: '本地 mock API', patient });
+    sendJson(res, 201, { sourceLabel, patient });
     return;
   }
 
@@ -263,7 +265,7 @@ const handler = async (req, res) => {
         return;
       }
 
-      sendJson(res, 200, { sourceLabel: '本地 mock API', ...bundle });
+      sendJson(res, 200, { sourceLabel, ...bundle });
       return;
     }
 
@@ -280,7 +282,7 @@ const handler = async (req, res) => {
         return;
       }
 
-      sendJson(res, 200, { sourceLabel: '本地 mock API', patient: updated });
+      sendJson(res, 200, { sourceLabel, patient: updated });
       return;
     }
 

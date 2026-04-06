@@ -336,6 +336,7 @@ body::before {
 .metric-card,
 .section-card,
 .table-card,
+.patient-card,
 .workspace-card,
 .panel-card {
   border-radius: var(--radius-lg) !important;
@@ -343,6 +344,48 @@ body::before {
   background: rgba(255, 255, 255, 0.92) !important;
   box-shadow: var(--shadow-sm) !important;
   overflow: hidden;
+}
+
+.patient-card {
+  height: 100%;
+}
+
+.patient-card .ant-card-body {
+  height: 100%;
+}
+
+.patient-card-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 10px;
+}
+
+.patient-card-actions .ant-btn {
+  min-height: 40px;
+}
+
+.patient-card-secondary {
+  color: var(--text-secondary);
+  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(248, 250, 252, 0.88);
+}
+
+.patient-card-secondary:hover {
+  color: var(--brand-strong);
+  border-color: rgba(37, 99, 235, 0.22);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.patient-card-hint {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.patient-empty-state {
+  min-height: 160px;
+  display: grid;
+  place-items: center;
 }
 
 .metric-card {

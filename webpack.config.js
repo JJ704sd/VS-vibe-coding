@@ -8,7 +8,7 @@ module.exports = {
     filename: 'bundle.[contenthash].js',
     chunkFilename: '[name].[contenthash].js',
     clean: false,
-    publicPath: '/',
+    publicPath: './',
   },
   resolve: {
     extensions: ['.tsx', '.ts', '.js', '.jsx'],
@@ -45,17 +45,16 @@ module.exports = {
   },
   plugins: [
     new HtmlWebpackPlugin({
-      template: './public/index.html',
+      template: './public/app.html',
     }),
   ],
   devServer: {
-    static: {
-      directory: path.join(__dirname, 'public'),
-    },
     compress: true,
     port: 3000,
     hot: true,
-    historyApiFallback: true,
+    historyApiFallback: {
+      index: '/app.html',
+    },
     open: true,
   },
   optimization: {

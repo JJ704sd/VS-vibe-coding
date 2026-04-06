@@ -1,7 +1,8 @@
-import { mockDiagnosisStats, mockPatients, mockRecentActivities, getPatientSummary } from '../data/mockClinic';
+﻿import { mockDiagnosisStats, mockPatients, mockRecentActivities, getPatientSummary } from '../data/mockClinic';
 import { ECGRecord, Patient } from '../types';
 
 const API_BASE_URL = 'http://localhost:4000/api';
+const BACKUP_SOURCE_LABEL = 'PTB-XL 20 条备份';
 
 export interface DashboardMetric {
   title: string;
@@ -70,30 +71,30 @@ const buildFallbackDashboard = (): DashboardOverview => {
   );
 
   return {
-    sourceLabel: '本地 mock 数据',
+    sourceLabel: BACKUP_SOURCE_LABEL,
     metrics: [
       {
-        title: '总病例数',
+        title: '患者总数',
         value: patients.length,
-        note: '本地兜底数据',
+        note: '来自本地 PTB-XL 备份',
         accent: 'metric-card--blue',
       },
       {
         title: '总心电图数',
         value: totalRecords,
-        note: '本地兜底记录数',
+        note: '已展开的记录总数',
         accent: 'metric-card--teal',
       },
       {
         title: '已标注',
         value: annotated,
-        note: '本地兜底标注数',
+        note: '已完成结构化标注',
         accent: 'metric-card--amber',
       },
       {
         title: '待处理',
         value: Math.max(totalRecords - annotated, 0),
-        note: '本地兜底待处理数',
+        note: '仍可继续处理的记录',
         accent: 'metric-card--rose',
       },
     ],
@@ -107,16 +108,19 @@ const buildFallbackBundle = (patientId: string): PatientBundle => {
   const record = patient?.records[0] || null;
 
   return {
-    sourceLabel: '本地 mock 数据',
+    sourceLabel: BACKUP_SOURCE_LABEL,
     patient,
     record,
   };
 };
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method || 'GET').toUpperCase();
+  const hasBody = typeof init?.body !== 'undefined' && init?.body !== null;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
-      'Content-Type': 'application/json',
+      ...(hasBody && method !== 'GET' && method !== 'HEAD' ? { 'Content-Type': 'application/json' } : {}),
+      Accept: 'application/json',
       ...(init?.headers || {}),
     },
     ...init,
@@ -153,7 +157,7 @@ export async function getPatients(): Promise<PatientsResponse> {
   } catch (error) {
     if (isNetworkError(error)) {
       return {
-        sourceLabel: '本地 mock 数据',
+        sourceLabel: BACKUP_SOURCE_LABEL,
         patients: buildFallbackPatients(),
       };
     }
