@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useState } from 'react';
-import { Button, Card, Col, Progress, Row, Space, Spin, Statistic, Tag, Typography } from 'antd';
+import { Button, Card, Col, Empty, Progress, Row, Space, Spin, Statistic, Tag, Typography } from 'antd';
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -15,6 +15,9 @@ const { Title, Text } = Typography;
 
 const Dashboard: React.FC = () => {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const quickMetrics = overview?.metrics.slice(0, 3) ?? [];
+  const recentActivities = overview?.recentActivities ?? [];
+  const diagnosisStats = overview?.diagnosisStats ?? [];
 
   useEffect(() => {
     let mounted = true;
@@ -39,22 +42,54 @@ const Dashboard: React.FC = () => {
   return (
     <div className="page-shell page-shell-wide">
       <section className="page-hero">
-        <div className="page-kicker">
-          <HeartOutlined />
-          Clinical overview
-        </div>
-        <Title className="page-title">心电工作台总览</Title>
-        <Text className="page-subtitle">
-          这是为标注、复核与分析设计的临床工作台。把最重要的信息放在最先看到的位置，让处理路径更短、层级更清楚、操作更稳定。
-        </Text>
-        <Tag color={overview?.sourceLabel === '本地 mock API' ? 'blue' : 'gold'}>
-          {overview?.sourceLabel || '加载中'}
-        </Tag>
-        <div className="page-actions">
-          <Button type="primary">进入标注工作台</Button>
-          <Button>查看病例列表</Button>
-          <Button icon={<FireOutlined />}>高优先级任务</Button>
-        </div>
+        <Row gutter={[24, 24]} align="middle">
+          <Col xs={24} lg={15}>
+            <div className="page-kicker">
+              <HeartOutlined />
+              Clinical overview
+            </div>
+            <Title className="page-title">心电工作台总览</Title>
+            <Text className="page-subtitle">
+              这是为标注、复核与分析设计的临床工作台。把最重要的信息放在最先看到的位置，让处理路径更短、层级更清楚、操作更稳定。
+            </Text>
+            <Space wrap style={{ marginTop: 12 }}>
+              <Tag color={overview?.sourceLabel === '本地 mock API' ? 'blue' : 'gold'}>
+                {overview?.sourceLabel || '加载中'}
+              </Tag>
+              <Tag color="default">核心流程在线</Tag>
+              <Tag color="default">今日待办已同步</Tag>
+            </Space>
+            <div className="page-actions">
+              <Button type="primary">进入标注工作台</Button>
+              <Button>查看病例列表</Button>
+              <Button icon={<FireOutlined />}>高优先级任务</Button>
+            </div>
+          </Col>
+          <Col xs={24} lg={9}>
+            <Card
+              className="panel-card"
+              title="今日概览"
+              extra={<Tag color="blue">{overview ? 'Live' : 'Syncing'}</Tag>}
+            >
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                {quickMetrics.length > 0 ? (
+                  quickMetrics.map((metric) => (
+                    <div key={metric.title} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Text type="secondary">{metric.title}</Text>
+                      <Text strong>{metric.value}</Text>
+                    </div>
+                  ))
+                ) : (
+                  <Text type="secondary">正在同步关键指标...</Text>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">工作台状态</Text>
+                  <Text strong>{overview ? '就绪' : '同步中'}</Text>
+                </div>
+              </Space>
+            </Card>
+          </Col>
+        </Row>
       </section>
 
       {overview ? (
@@ -90,28 +125,26 @@ const Dashboard: React.FC = () => {
             <Col xs={24} lg={14}>
               <Card className="section-card" title="最近活动" extra={<Text type="secondary">最近 24 小时</Text>}>
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                  {overview.recentActivities.map((item, index) => (
-                    <div
-                      key={item}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 12,
-                        padding: '12px 14px',
-                        borderRadius: 16,
-                        background: index % 2 === 0 ? 'rgba(39, 94, 241, 0.03)' : 'rgba(15, 157, 154, 0.03)',
-                      }}
-                    >
-                      <RiseOutlined style={{ color: '#275ef1', marginTop: 4 }} />
-                      <div style={{ flex: 1 }}>
-                        <Text strong>{item}</Text>
-                        <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
-                          已同步到临床工作流
+                  {recentActivities.length > 0 ? (
+                    recentActivities.map((item) => (
+                      <div
+                        key={item}
+                        className="glass-panel"
+                        style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px' }}
+                      >
+                        <RiseOutlined style={{ color: '#275ef1', marginTop: 4 }} />
+                        <div style={{ flex: 1 }}>
+                          <Text strong>{item}</Text>
+                          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
+                            已同步到临床工作流
+                          </div>
                         </div>
+                        <Tag color="blue">Now</Tag>
                       </div>
-                      <Tag color="blue">Now</Tag>
-                    </div>
-                  ))}
+                    ))
+                  ) : (
+                    <Empty description="暂无最近活动" />
+                  )}
                 </Space>
               </Card>
             </Col>
@@ -119,17 +152,21 @@ const Dashboard: React.FC = () => {
             <Col xs={24} lg={10}>
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
                 <Card className="section-card" title="AI 诊断统计" extra={<Text type="secondary">模型输出分布</Text>}>
-                  <Space direction="vertical" style={{ width: '100%' }} size={12}>
-                    {overview.diagnosisStats.map((item) => (
-                      <div key={item.name}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                          <Text>{item.name}</Text>
-                          <Tag color={item.color}>{item.value}%</Tag>
+                  {diagnosisStats.length > 0 ? (
+                    <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                      {diagnosisStats.map((item) => (
+                        <div key={item.name}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                            <Text>{item.name}</Text>
+                            <Tag color={item.color}>{item.value}%</Tag>
+                          </div>
+                          <Progress percent={item.value} showInfo={false} strokeColor={item.color} />
                         </div>
-                        <Progress percent={item.value} showInfo={false} strokeColor={item.color} />
-                      </div>
-                    ))}
-                  </Space>
+                      ))}
+                    </Space>
+                  ) : (
+                    <Empty description="暂无统计数据" />
+                  )}
                 </Card>
 
                 <Card className="section-card" title="今日节奏">
@@ -156,8 +193,12 @@ const Dashboard: React.FC = () => {
         </>
       ) : (
         <Card className="section-card" style={{ marginTop: 18 }}>
-          <div style={{ minHeight: 220, display: 'grid', placeItems: 'center' }}>
-            <Spin size="large" />
+          <div className="empty-panel" style={{ minHeight: 220, display: 'grid', placeItems: 'center' }}>
+            <Space direction="vertical" align="center">
+              <Spin size="large" />
+              <Text type="secondary">正在同步工作台数据...</Text>
+              <Text type="secondary">如果停留过久，请检查 mock API 服务状态。</Text>
+            </Space>
           </div>
         </Card>
       )}

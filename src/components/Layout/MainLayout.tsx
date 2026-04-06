@@ -1,5 +1,5 @@
 ﻿import React from 'react';
-import { Layout, Menu } from 'antd';
+import { Layout, Menu, Space, Tag } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   DashboardOutlined,
@@ -78,10 +78,10 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   return (
     <Layout className="app-layout">
-      <Sider width={220} theme="dark" breakpoint="lg" collapsedWidth={80} className="app-sider">
+      <Sider width={220} theme="light" breakpoint="lg" collapsedWidth={80} className="app-sider">
         <div className="app-brand">
           <div className="app-brand-mark">ECG</div>
-          <div>
+          <div className="app-brand-copy">
             <div className="app-brand-title">ECG Platform</div>
             <div className="app-brand-subtitle">Clinical Workbench</div>
           </div>
@@ -89,15 +89,15 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         <div className="app-brand-status">
           <div className="app-brand-status-line">
             <span>Workspace</span>
-            <strong>Ready</strong>
+            <Tag color="green">Ready</Tag>
           </div>
-          <div className="app-brand-status-line" style={{ marginTop: 8 }}>
+          <div className="app-brand-status-line">
             <span>Routes</span>
-            <strong>Lazy-loaded</strong>
+            <Tag color="blue">Lazy-loaded</Tag>
           </div>
         </div>
         <Menu
-          theme="dark"
+          theme="light"
           mode="inline"
           selectedKeys={[selectedKey]}
           items={menuItems}
@@ -113,10 +113,17 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <span className="app-header-title">{currentPage.title}</span>
             <span className="app-header-subtitle">{currentPage.subtitle}</span>
           </div>
-          <div className="app-header-cluster">
-            <span className="app-header-tag">Workspace online</span>
-            <span className="app-header-tag">{currentPage.tag}</span>
-          </div>
+          <Space wrap size={8} className="app-header-cluster">
+            <Tag className="app-header-tag" color="green">
+              Workspace online
+            </Tag>
+            <Tag className="app-header-tag" color="blue">
+              {currentPage.tag}
+            </Tag>
+            <Tag className="app-header-tag" color="default">
+              React 18
+            </Tag>
+          </Space>
         </Header>
         {children}
       </Layout>

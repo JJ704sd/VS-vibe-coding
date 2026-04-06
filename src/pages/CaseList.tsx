@@ -199,7 +199,7 @@ const CaseList: React.FC = () => {
         <div className="page-kicker">Registry</div>
         <Title className="page-title">病例管理</Title>
         <Text className="page-subtitle">
-          现在列表页直接从本地 mock API 获取患者数据，创建患者也会走同一条接口路径。这样后续替换成真实后端时，前端变化会更小。
+          从同一条本地 API 管线查看、搜索和创建患者。把入口收紧后，病例登记与标注跳转会更直观。
         </Text>
         <Space wrap>
           <Tag color={sourceLabel === '本地 mock API' ? 'blue' : 'gold'}>{sourceLabel}</Tag>
@@ -212,7 +212,16 @@ const CaseList: React.FC = () => {
         </div>
       </section>
 
-      <Row gutter={[16, 16]} className="stat-grid" style={{ marginTop: 18 }}>
+      <div className="section-spacer">
+        <Space wrap size={10}>
+          <span className="summary-chip">患者 {patients.length}</span>
+          <span className="summary-chip">筛选 {filteredPatients.length}</span>
+          <span className="summary-chip">待标注 {caseMetrics[2].value}</span>
+          <span className="summary-chip">{sourceLabel}</span>
+        </Space>
+      </div>
+
+      <Row gutter={[16, 16]} className="stat-grid section-spacer">
         {caseMetrics.map((metric) => (
           <Col xs={24} sm={12} xl={6} key={metric.title}>
             <Card className={`metric-card ${metric.accent}`}>
@@ -254,8 +263,11 @@ const CaseList: React.FC = () => {
         </div>
 
         {loading ? (
-          <div style={{ minHeight: 220, display: 'grid', placeItems: 'center' }}>
-            <Spin size="large" />
+          <div className="empty-panel" style={{ minHeight: 220, display: 'grid', placeItems: 'center' }}>
+            <Space direction="vertical" align="center">
+              <Spin size="large" />
+              <Text type="secondary">正在加载病例数据...</Text>
+            </Space>
           </div>
         ) : (
           <div className="glass-panel" style={{ padding: 16 }}>

@@ -1,20 +1,39 @@
-<!-- planning-with-files:start -->
-# Planning With Files
+﻿# Project Guidelines
 
-Use the planning-with-files pattern for multi-step work that needs durable memory on disk.
+## Code Style
+- TypeScript strict mode
+- ESLint with some relaxations (exhaustive-deps off)
+- Prettier for formatting: `npm run format`
 
-Recommended session layout:
+Reference: [tsconfig.json](tsconfig.json), [.eslintrc.json](.eslintrc.json)
 
-- `.planning/<session-name>/task_plan.md`
-- `.planning/<session-name>/findings.md`
-- `.planning/<session-name>/progress.md`
+## Architecture
+- React 18 + TypeScript -> Redux Toolkit -> TensorFlow.js + Fabric.js + Ant Design -> Firebase/IndexedDB
+- Pages lazy-loaded with code splitting
+- State: ecgSlice (annotations, canvas, model) + caseSlice (patients, records)
+- Services: singleton pattern with fallbacks
+- Data: Patient -> ECGRecord[] -> ECGLead[] + Annotation[] + ModelPrediction[]
 
-Keep the notes concise, project-specific, and reusable.
+See [SPEC.md](SPEC.md) for detailed architecture and use cases.
 
-# ECG Annotation Platform Notes
+## Build and Test
+- `npm start`: dev server + mock API
+- `npm run build`: production build
+- `npm test`: Jest tests
+- `npm run lint`: ESLint
 
-- Keep page-level routes lazy-loaded so `AnnotationStudio` and other large screens stay out of the initial bundle.
-- Prefer project-aware planning notes under `.planning/` for local workflow state; do not rely on chat history for multi-step changes.
-- Treat webpack output cleaning conservatively on Windows because locked files in `dist/` can break production builds.
-- Keep `npm run build` and `npm run lint` usable after changes; lint warnings are acceptable short-term, but avoid introducing new lint errors.
-<!-- planning-with-files:end -->
+## Conventions
+- Lazy routes: All pages use React.lazy() with Suspense
+- Service singletons: Fallback to mock if load fails
+- State slices: Add to existing slices unless orthogonal
+- Redux: inferenceResults excluded from serialization (TF tensors)
+- Canvas: Fabric.js wrapper with ref-based init
+- Path aliases: @, @components, etc.
+- Planning: Use .planning/ for multi-step work notes
+- Visual system: Prefer shadcn-style neutral surfaces, compact card hierarchies, and low-noise page chrome for core workbench screens.
+
+Keep page-level routes lazy-loaded for bundle optimization.
+Treat webpack output cleaning conservatively on Windows.
+Avoid new lint errors.
+
+See [README.md](README.md) for quick start and project structure.
