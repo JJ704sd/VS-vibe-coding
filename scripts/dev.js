@@ -1,15 +1,15 @@
 const { spawn } = require('child_process');
 
-const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npmCmd = 'npm';
 
 const api = spawn(npmCmd, ['run', 'dev:api'], {
   stdio: 'inherit',
-  shell: false,
+  shell: true,
 });
 
 const web = spawn(npmCmd, ['run', 'dev:web'], {
   stdio: 'inherit',
-  shell: false,
+  shell: true,
 });
 
 const shutdown = () => {

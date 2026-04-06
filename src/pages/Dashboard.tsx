@@ -53,7 +53,7 @@ const Dashboard: React.FC = () => {
               这是为标注、复核与分析设计的临床工作台。把最重要的信息放在最先看到的位置，让处理路径更短、层级更清楚、操作更稳定。
             </Text>
             <Space wrap style={{ marginTop: 12 }}>
-              <Tag color={overview?.sourceLabel === '本地 mock API' ? 'blue' : 'gold'}>
+                <Tag color={overview?.sourceLabel?.includes('PTB-XL') ? 'blue' : 'gold'}>
                 {overview?.sourceLabel || '加载中'}
               </Tag>
               <Tag color="default">核心流程在线</Tag>
