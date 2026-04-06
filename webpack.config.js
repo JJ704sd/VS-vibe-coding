@@ -8,7 +8,7 @@ module.exports = {
     filename: 'bundle.[contenthash].js',
     chunkFilename: '[name].[contenthash].js',
     clean: false,
-    publicPath: '/',
+    publicPath: './',
   },
   resolve: {
     extensions: ['.tsx', '.ts', '.js', '.jsx'],
