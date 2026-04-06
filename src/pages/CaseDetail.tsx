@@ -67,7 +67,7 @@ const CaseDetail: React.FC = () => {
         <div className="page-kicker">Patient detail</div>
         <Title className="page-title">病例详情</Title>
         <Text className="page-subtitle">
-          统一查看患者信息、记录列表、波形和诊断时间线。当前页面已切换到本地 mock API，如果接口不可用，会自动回退到本地 mock 数据。
+          在一个页面里查看患者信息、记录列表、波形和诊断时间线。布局更收敛后，重点会落在当前记录本身。
         </Text>
         <Space wrap>
           <Tag color={sourceLabel === '本地 mock API' ? 'blue' : 'gold'}>{sourceLabel}</Tag>
@@ -81,17 +81,28 @@ const CaseDetail: React.FC = () => {
         </div>
       </section>
 
+      <div className="section-spacer">
+        <Space wrap size={10}>
+          <span className="summary-chip">记录 {recordList.length}</span>
+          <span className="summary-chip">当前 {selectedRecord ? selectedRecord.diagnosis?.label || '未诊断' : '无记录'}</span>
+          <span className="summary-chip">来源 {sourceLabel}</span>
+        </Space>
+      </div>
+
       {loading ? (
         <Card className="section-card" style={{ marginTop: 18 }}>
-          <div style={{ minHeight: 240, display: 'grid', placeItems: 'center' }}>
-            <Spin size="large" />
+          <div className="empty-panel" style={{ minHeight: 240, display: 'grid', placeItems: 'center' }}>
+            <Space direction="vertical" align="center">
+              <Spin size="large" />
+              <Text type="secondary">正在加载病例详情...</Text>
+            </Space>
           </div>
         </Card>
       ) : (
-        <Row gutter={[16, 16]} style={{ marginTop: 18 }}>
+        <Row gutter={[16, 16]} className="section-spacer">
           <Col xs={24} xl={8}>
             <Space direction="vertical" size={16} style={{ width: '100%' }}>
-              <Card className="section-card" title="患者信息">
+              <Card className="section-card" title="患者信息" extra={<Tag color="blue">Profile</Tag>}>
                 {patient ? (
                   <Descriptions column={1} size="small">
                     <Descriptions.Item label="患者 ID">{patient.id}</Descriptions.Item>
@@ -104,7 +115,7 @@ const CaseDetail: React.FC = () => {
                 )}
               </Card>
 
-              <Card className="section-card" title="心电记录列表">
+              <Card className="section-card" title="心电记录列表" extra={<Tag color="geekblue">Records</Tag>}>
                 {recordList.length > 0 ? (
                   <List
                     dataSource={recordList}
@@ -132,16 +143,16 @@ const CaseDetail: React.FC = () => {
               <Card
                 className="workspace-card"
                 title={selectedRecord ? `心电图详情 - ${selectedRecord.diagnosis?.label || '未诊断'}` : '请选择记录'}
-                extra={
-                  <Space>
-                    <Tag color="blue">{selectedRecord ? 'Active' : 'Idle'}</Tag>
-                    <Button icon={<PlayCircleOutlined />}>预览</Button>
-                    <Button icon={<DownloadOutlined />}>导出</Button>
-                  </Space>
-                }
+                extra={<Tag color={selectedRecord ? 'blue' : 'default'}>{selectedRecord ? 'Active' : 'Idle'}</Tag>}
               >
                 {selectedRecord ? (
                   <>
+                    <Space wrap size={8} style={{ marginBottom: 14 }}>
+                      <span className="summary-chip">设备 {selectedRecord.deviceId}</span>
+                      <span className="summary-chip">采样率 {selectedRecord.samplingRate} Hz</span>
+                      <span className="summary-chip">时长 {selectedRecord.duration}s</span>
+                      <span className="summary-chip">质量 {selectedRecord.signalQuality}%</span>
+                    </Space>
                     <Descriptions column={{ xs: 1, sm: 2, md: 4 }} size="small" style={{ marginBottom: 16 }}>
                       <Descriptions.Item label="设备">{selectedRecord.deviceId}</Descriptions.Item>
                       <Descriptions.Item label="采样率">{selectedRecord.samplingRate} Hz</Descriptions.Item>
@@ -157,7 +168,7 @@ const CaseDetail: React.FC = () => {
 
               <Row gutter={[16, 16]}>
                 <Col xs={24} lg={12}>
-                  <Card className="section-card" title="诊断时间线">
+                  <Card className="section-card" title="诊断时间线" extra={<Tag color="cyan">Timeline</Tag>}>
                     {selectedRecord ? (
                       <Timeline
                         items={[
@@ -174,7 +185,7 @@ const CaseDetail: React.FC = () => {
                   </Card>
                 </Col>
                 <Col xs={24} lg={12}>
-                  <Card className="section-card" title="当前状态">
+                  <Card className="section-card" title="当前状态" extra={<Tag color="green">Status</Tag>}>
                     {selectedRecord ? (
                       <Space direction="vertical" size={12} style={{ width: '100%' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>

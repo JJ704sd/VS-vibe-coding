@@ -463,6 +463,15 @@ const AnnotationStudio: React.FC = () => {
     return matched || leads[0];
   };
 
+  const activeLead = leads.length > 0 ? getActiveLead() : null;
+  const signalQuality = activeLead ? Math.round(calculateSignalQuality(activeLead.data)) : 0;
+  const studioSummary = [
+    { label: '导联', value: leads.length || 0 },
+    { label: '标注', value: annotations.length || 0 },
+    { label: 'AI 结果', value: inferenceResults.length || 0 },
+    { label: '信号质量', value: `${signalQuality}%` },
+  ];
+
   const buildRecordId = (): string => {
     if (currentRecordId) {
       return currentRecordId;
@@ -684,7 +693,7 @@ const AnnotationStudio: React.FC = () => {
         <div className="page-kicker">Workbench</div>
         <Title className="page-title">标注工作台</Title>
         <Text className="page-subtitle">
-          导入心电数据、执行 AI 推理并完成人工标注。这个页面需要承载最高的信息密度，所以我把流程、操作和分析拆成了更清晰的层次。
+          导入心电数据、执行 AI 推理并完成人工标注。把高频操作放在同一层，把波形和分析结果留给主工作区。
         </Text>
         <div className="page-actions">
           <Tag color={currentPatientId ? 'blue' : 'default'} className="app-header-tag">
@@ -699,10 +708,21 @@ const AnnotationStudio: React.FC = () => {
         </div>
       </section>
 
-      <Row gutter={[16, 16]} style={{ marginTop: 18 }}>
+      <div className="section-spacer">
+        <Space wrap size={10}>
+          {studioSummary.map((item) => (
+            <span key={item.label} className="summary-chip">
+              {item.label} {item.value}
+            </span>
+          ))}
+          <span className="summary-chip">工具 {activeTool === 'annotate' ? `标注 ${activeAnnotationType}` : '平移'}</span>
+        </Space>
+      </div>
+
+      <Row gutter={[16, 16]} className="section-spacer">
         <Col xs={24} xl={5}>
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Card className="section-card" title="使用流程">
+            <Card className="section-card" title="使用流程" extra={<Tag color="blue">Flow</Tag>}>
               <Space direction="vertical" size={8} style={{ width: '100%' }}>
                 <Text type="secondary">1. 导入 JSON、DICOM、HL7 或 WFDB 数据。</Text>
                 <Text type="secondary">2. 选择导联，必要时调整 R 峰阈值与回放窗口。</Text>
@@ -711,7 +731,7 @@ const AnnotationStudio: React.FC = () => {
               </Space>
             </Card>
 
-            <Card className="section-card" title="数据导入">
+            <Card className="section-card" title="数据导入" extra={<Tag color="geekblue">Sources</Tag>}>
               <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }}>
                 <Input
                   placeholder="粘贴 GitHub Raw JSON 链接"
@@ -799,7 +819,7 @@ const AnnotationStudio: React.FC = () => {
               ) : null}
             </Card>
 
-            <Card className="section-card" title="标注工具">
+            <Card className="section-card" title="标注工具" extra={<Tag color="purple">Hotkeys</Tag>}>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
                 先选择标注类型，再在波形区双击落点；删除时先单击选中标注。
               </div>
@@ -837,7 +857,13 @@ const AnnotationStudio: React.FC = () => {
         </Col>
 
         <Col xs={24} xl={11}>
-          <Card className="workspace-card" title="ECG 波形显示" style={{ height: '100%' }}>
+          <Card className="workspace-card" title="ECG 波形显示" style={{ height: '100%' }} extra={<Tag color="cyan">Canvas</Tag>}>
+            <Space wrap size={8} style={{ marginBottom: 14 }}>
+              <span className="summary-chip">主导联 {analysisLeadName}</span>
+              <span className="summary-chip">播放 {playbackEnabled ? '开启' : '关闭'}</span>
+              <span className="summary-chip">窗口 {playbackWindowSize}</span>
+              <span className="summary-chip">步长 {playbackStep}</span>
+            </Space>
             <ECGCanvas
               leads={leads}
               height={520}
@@ -850,7 +876,11 @@ const AnnotationStudio: React.FC = () => {
 
         <Col xs={24} xl={8}>
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Card className="section-card" title="智能辅助">
+            <Card
+              className="section-card"
+              title="智能辅助"
+              extra={<Tag color={modelLoaded ? 'green' : 'default'}>{modelLoaded ? 'Ready' : 'Idle'}</Tag>}
+            >
               <Space direction="vertical" style={{ width: '100%' }}>
                 <select
                   value={analysisLeadName}
@@ -894,7 +924,11 @@ const AnnotationStudio: React.FC = () => {
               </Space>
             </Card>
 
-            <Card className="section-card" title="动态回放">
+            <Card
+              className="section-card"
+              title="动态回放"
+              extra={<Tag color={playbackEnabled ? 'blue' : 'default'}>{playbackEnabled ? 'Live' : 'Paused'}</Tag>}
+            >
               <Space direction="vertical" style={{ width: '100%' }}>
                 <Button onClick={() => setPlaybackEnabled((previous) => !previous)} block>
                   {playbackEnabled ? '暂停动态回放' : '启动动态回放'}
@@ -934,7 +968,7 @@ const AnnotationStudio: React.FC = () => {
               </Space>
             </Card>
 
-            <Card className="section-card" title="AI 辅助">
+            <Card className="section-card" title="AI 辅助" extra={<Tag color="gold">Inference</Tag>}>
               <Space direction="vertical" style={{ width: '100%' }}>
                 <Button icon={<RobotOutlined />} onClick={handleModelLoad} loading={modelLoading} block>
                   {modelLoaded ? '模型已加载' : '加载模型'}
@@ -977,7 +1011,7 @@ const AnnotationStudio: React.FC = () => {
               </Space>
             </Card>
 
-            <Card className="section-card" title="信号概览">
+            <Card className="section-card" title="信号概览" extra={<Tag color="cyan">Metrics</Tag>}>
               {leads.length > 0 ? (
                 <Space direction="vertical" style={{ width: '100%' }} size={8}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -994,10 +1028,10 @@ const AnnotationStudio: React.FC = () => {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Text type="secondary">信号质量</Text>
-                    <Text strong>{Math.round(calculateSignalQuality(getActiveLead().data))}%</Text>
+                    <Text strong>{signalQuality}%</Text>
                   </div>
                   <Progress
-                    percent={Math.round(calculateSignalQuality(getActiveLead().data))}
+                    percent={signalQuality}
                     strokeColor={{ from: '#275ef1', to: '#0f9d9a' }}
                   />
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1014,7 +1048,7 @@ const AnnotationStudio: React.FC = () => {
               )}
             </Card>
 
-            <Card className="section-card" title="AI 诊断结果">
+            <Card className="section-card" title="AI 诊断结果" extra={<Tag color="magenta">Results</Tag>}>
               {inferenceResults.length > 0 ? (
                 <List
                   dataSource={inferenceResults}
@@ -1036,7 +1070,7 @@ const AnnotationStudio: React.FC = () => {
               )}
             </Card>
 
-            <Card className="section-card" title="标注列表">
+            <Card className="section-card" title="标注列表" extra={<Tag color="blue">Annotations</Tag>}>
               {annotations.length > 0 ? (
                 <List
                   size="small"

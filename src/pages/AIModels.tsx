@@ -104,7 +104,7 @@ const AIModels: React.FC = () => {
         <div className="page-kicker">Models</div>
         <Title className="page-title">AI 模型管理</Title>
         <Text className="page-subtitle">
-          用更明确的层级展示推理模型状态、准确率和基础配置。这里的重点不是堆参数，而是让加载、切换和判断更直观。
+          用更明确的层级展示推理模型状态、准确率和基础配置。这里保留模型管理的动作，但把信息压成更容易扫读的卡片。
         </Text>
         <div className="page-actions">
           <Button type="primary">同步模型库</Button>
@@ -112,7 +112,15 @@ const AIModels: React.FC = () => {
         </div>
       </section>
 
-      <Row gutter={[16, 16]} className="stat-grid" style={{ marginTop: 18 }}>
+      <div className="section-spacer">
+        <Space wrap size={10}>
+          <span className="summary-chip">已加载 {models.filter((model) => model.status === 'loaded').length}</span>
+          <span className="summary-chip">总模型 {models.length}</span>
+          <span className="summary-chip">当前 {selectedModel?.name || '未选择'}</span>
+        </Space>
+      </div>
+
+      <Row gutter={[16, 16]} className="stat-grid section-spacer">
         {modelMetrics.map((metric) => (
           <Col xs={24} sm={12} xl={6} key={metric.title}>
             <Card className={`metric-card ${metric.accent}`}>
@@ -126,7 +134,7 @@ const AIModels: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginTop: 18 }}>
         <Col xs={24} lg={16}>
-          <Card className="section-card" title="模型列表">
+          <Card className="section-card" title="模型列表" extra={<Tag color="blue">Registry</Tag>}>
             <Table
               className="table-card"
               columns={columns}
@@ -144,7 +152,7 @@ const AIModels: React.FC = () => {
 
         <Col xs={24} lg={8}>
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Card className="section-card" title="模型详情">
+            <Card className="section-card" title="模型详情" extra={<Tag color={selectedModel ? 'green' : 'default'}>{selectedModel ? 'Selected' : 'Idle'}</Tag>}>
               {selectedModel ? (
                 <Space direction="vertical" size={10} style={{ width: '100%' }}>
                   <div>
@@ -172,7 +180,7 @@ const AIModels: React.FC = () => {
               )}
             </Card>
 
-            <Card className="section-card" title="模型设置">
+            <Card className="section-card" title="模型设置" extra={<Tag color="geekblue">Controls</Tag>}>
               <Space direction="vertical" style={{ width: '100%' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>自动推理</span>

@@ -18,18 +18,28 @@ const Settings: React.FC = () => {
         <div className="page-kicker">Preferences</div>
         <Title className="page-title">系统设置</Title>
         <Text className="page-subtitle">
-          让显示、采样和推理偏好保持一致。设置页采用更清晰的分组和更轻的视觉重量，便于快速调整而不打断工作流。
+          让显示、采样和推理偏好保持一致。设置页保持轻量，但信息分组更直接，减少来回切页的干扰。
         </Text>
         <div className="page-actions">
-          <Button type="primary" onClick={handleSave}>保存设置</Button>
+          <Button type="primary" onClick={handleSave}>
+            保存设置
+          </Button>
           <Button onClick={() => form.resetFields()}>重置为默认值</Button>
         </div>
       </section>
 
+      <div className="section-spacer">
+        <Space wrap size={10}>
+          <span className="summary-chip">默认缩放 100%</span>
+          <span className="summary-chip">刷新率 60 FPS</span>
+          <span className="summary-chip">离线模式 开启</span>
+        </Space>
+      </div>
+
       <Form
         form={form}
         layout="vertical"
-        style={{ marginTop: 18 }}
+        className="section-spacer"
         initialValues={{
           systemName: 'ECG Annotation Platform',
           language: 'zh-CN',
@@ -46,7 +56,7 @@ const Settings: React.FC = () => {
       >
         <Row gutter={[16, 16]}>
           <Col xs={24} lg={12}>
-            <Card className="section-card" title="基本设置">
+            <Card className="section-card" title="基本设置" extra={<Tag color="blue">Core</Tag>}>
               <Row gutter={16}>
                 <Col span={12}>
                   <Form.Item label="系统名称" name="systemName" rules={[{ required: true }]}>
@@ -90,7 +100,7 @@ const Settings: React.FC = () => {
           </Col>
 
           <Col xs={24} lg={12}>
-            <Card className="section-card" title="显示设置">
+            <Card className="section-card" title="显示设置" extra={<Tag color="cyan">Display</Tag>}>
               <Row gutter={16}>
                 <Col span={12}>
                   <Form.Item label="默认缩放" name="defaultZoom">
@@ -136,7 +146,7 @@ const Settings: React.FC = () => {
           </Col>
 
           <Col xs={24} lg={12}>
-            <Card className="section-card" title="AI 推理设置">
+            <Card className="section-card" title="AI 推理设置" extra={<Tag color="geekblue">Inference</Tag>}>
               <Row gutter={16}>
                 <Col span={12}>
                   <Form.Item label="推理模式" name="inferenceMode">
@@ -161,7 +171,7 @@ const Settings: React.FC = () => {
           </Col>
 
           <Col xs={24} lg={12}>
-            <Card className="section-card" title="快捷键与提示">
+            <Card className="section-card" title="快捷键与提示" extra={<Tag color="purple">Shortcuts</Tag>}>
               <Space direction="vertical" size={10} style={{ width: '100%' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                   <Text>Ctrl + 1</Text>
@@ -188,7 +198,7 @@ const Settings: React.FC = () => {
           </Col>
         </Row>
 
-        <Card className="section-card" style={{ marginTop: 16 }}>
+        <Card className="section-card" style={{ marginTop: 16 }} extra={<Tag color="gold">Note</Tag>}>
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
             <Text strong>保存说明</Text>
             <Text type="secondary">
