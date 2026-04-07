@@ -171,7 +171,11 @@ const ECGCanvas: React.FC<ECGCanvasProps> = ({
       const color = colors[index % colors.length];
       const yOffset = index * leadBandHeight + centerOffset;
       const points: number[] = [];
-      const maxAbs = Math.max(...lead.data.map((value) => Math.abs(value)), 0.01);
+      let maxAbs = 0.01;
+      for (let i = 0; i < lead.data.length; i++) {
+        const abs = Math.abs(lead.data[i]);
+        if (abs > maxAbs) maxAbs = abs;
+      }
       const amplitudeScale = (leadBandHeight * 0.34) / maxAbs;
 
       lead.data.forEach((value, i) => {

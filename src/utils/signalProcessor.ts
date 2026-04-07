@@ -48,7 +48,11 @@ export class SignalProcessor {
   }
 
   private normalize(data: number[]): number[] {
-    const max = Math.max(...data.map(Math.abs));
+    let max = 0;
+    for (let i = 0; i < data.length; i++) {
+      const abs = Math.abs(data[i]);
+      if (abs > max) max = abs;
+    }
     if (max === 0) return data;
     return data.map(v => v / max);
   }
@@ -98,9 +102,16 @@ export function calculateHeartRate(rrIntervals: number[]): number {
 
 export function findRPeaks(data: number[], threshold: number = 0.5): number[] {
   const peaks: number[] = [];
-  const signal = data.map(Math.abs);
-  const max = Math.max(...signal);
-  const normalized = signal.map(v => v / max);
+  const signal: number[] = new Array(data.length);
+  let signalMax = 0;
+  for (let i = 0; i < data.length; i++) {
+    signal[i] = Math.abs(data[i]);
+    if (signal[i] > signalMax) signalMax = signal[i];
+  }
+  const normalized: number[] = new Array(data.length);
+  for (let i = 0; i < signal.length; i++) {
+    normalized[i] = signalMax > 0 ? signal[i] / signalMax : 0;
+  }
 
   let inPeak = false;
   let peakStart = 0;
@@ -125,7 +136,13 @@ export function findRPeaks(data: number[], threshold: number = 0.5): number[] {
 }
 
 export function calculateSignalQuality(data: number[]): number {
-  const amplitude = Math.max(...data) - Math.min(...data);
+  let dataMin = data[0] ?? 0;
+  let dataMax = data[0] ?? 0;
+  for (let i = 1; i < data.length; i++) {
+    if (data[i] < dataMin) dataMin = data[i];
+    if (data[i] > dataMax) dataMax = data[i];
+  }
+  const amplitude = dataMax - dataMin;
   if (amplitude < 0.1) return 0;
 
   const mean = data.reduce((a, b) => a + b, 0) / data.length;

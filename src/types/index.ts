@@ -165,13 +165,9 @@ export interface InferenceResult {
   heatmap?: number[][];
 }
 
-export interface FirebaseConfig {
-  apiKey: string;
-  projectId: string;
-  storageBucket: string;
-  messagingSenderId: string;
-  appId: string;
-}
+// FirebaseConfig is now defined in firebaseService.ts
+// Import from there or use environment variables directly
+export type { FirebaseConfig } from '../services/firebaseService';
 
 export interface ExportOptions {
   format: 'json' | 'csv' | 'tcx' | 'pdf';

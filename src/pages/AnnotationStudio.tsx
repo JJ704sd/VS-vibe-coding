@@ -19,19 +19,36 @@ import {
   ThunderboltOutlined,
   LinkOutlined,
 } from '@ant-design/icons';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import ECGCanvas from '../components/Canvas/ECGCanvas';
 import { useDispatch, useSelector } from 'react-redux';
-import { RootState } from '../store';
+import {
+  selectModelLoading,
+  selectModelLoaded,
+  selectInferenceResults,
+  selectAnnotationCount,
+  selectAnnotationStats,
+  selectAnnotations,
+} from '../store/selectors';
 import { setModelLoading, setModelLoaded, setInferenceResults, setAnnotations } from '../store/ecgSlice';
 import { modelService } from '../services/modelService';
+import { firebaseService } from '../services/firebaseService';
 import { Annotation, ECGLead } from '../types';
 import { ecgParserService } from '../services/ecgParser';
 import { WFDBParser } from '../utils/dicomParser';
 import { minimaxService } from '../services/minimaxService';
 import { calculateSignalQuality, extractFeatures, findRPeaks } from '../utils/signalProcessor';
 import { exportRecord } from '../utils/exportUtils';
+import {
+  AnnotationToolbar,
+  ImportPanel,
+  PlaybackControls,
+  AIAnalysisPanel,
+  SignalMetrics,
+  AnnotationList,
+  SmartAssistancePanel,
+} from './components';
 
 interface WfdbBatchRecord {
   id: string;
@@ -87,9 +104,11 @@ const AnnotationStudio: React.FC = () => {
   const location = useLocation();
   const { recordId: routeRecordId } = useParams<{ recordId?: string }>();
   const dispatch = useDispatch();
-  const { modelLoading, modelLoaded, inferenceResults, annotations } = useSelector(
-    (state: RootState) => state.ecg
-  );
+  const modelLoading = useSelector(selectModelLoading);
+  const modelLoaded = useSelector(selectModelLoaded);
+  const inferenceResults = useSelector(selectInferenceResults);
+  const annotations = useSelector(selectAnnotations);
+  const annotationStats = useSelector(selectAnnotationStats);
 
   const sourceLeadsRef = useRef<ECGLead[]>(INITIAL_DEMO_LEADS.map((lead) => ({ ...lead, data: [...lead.data] })));
   const [leads, setLeads] = useState<ECGLead[]>(() =>
@@ -271,6 +290,27 @@ const AnnotationStudio: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Persist annotations to Firebase when they change
+  const saveAnnotationsToFirebase = useCallback(
+    async (recordId: string, annots: Annotation[]) => {
+      if (!recordId || !firebaseService.isInitialized()) return;
+      try {
+        await firebaseService.updateRecordAnnotations(recordId, annots);
+      } catch (error) {
+        console.warn('[AnnotationStudio] Failed to save annotations:', error);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!currentRecordId || currentRecordId.startsWith('local-')) return;
+    const timeoutId = setTimeout(() => {
+      saveAnnotationsToFirebase(currentRecordId, annotations);
+    }, 1000); // Debounce saves by 1 second
+    return () => clearTimeout(timeoutId);
+  }, [annotations, currentRecordId, saveAnnotationsToFirebase]);
+
   const parseJsonTextAndApply = async (jsonText: string): Promise<void> => {
     const parsed = await ecgParserService.parseJSON(jsonText);
     if (!parsed.success || !parsed.record) {
@@ -289,11 +329,12 @@ const AnnotationStudio: React.FC = () => {
 
   const arrayBufferToBinaryString = (buffer: ArrayBuffer): string => {
     const bytes = new Uint8Array(buffer);
-    let result = '';
-    for (let index = 0; index < bytes.length; index += 1) {
-      result += String.fromCharCode(bytes[index]);
+    // Use TextDecoder for efficient conversion, fallback to String.fromCharCode for small buffers
+    if (typeof TextDecoder !== 'undefined') {
+      return new TextDecoder('ascii').decode(bytes);
     }
-    return result;
+    // Fallback for environments without TextDecoder
+    return String.fromCharCode(...bytes);
   };
 
   const parseWfdbPair = async (heaFile: File, datFile: File): Promise<ECGLead[]> => {
@@ -433,6 +474,31 @@ const AnnotationStudio: React.FC = () => {
       return;
     }
 
+    // SSRF protection: validate URL points to githubusercontent.com
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      message.warning('链接格式不正确');
+      return;
+    }
+
+    const validHosts = ['raw.githubusercontent.com', 'raw.githubusercontent.org'];
+    if (!validHosts.includes(parsedUrl.hostname.toLowerCase())) {
+      message.warning('只支持 GitHub Raw (raw.githubusercontent.com) 链接');
+      return;
+    }
+
+    // Additional security: reject URLs with suspicious patterns
+    const suspiciousPatterns = [/@/, /:/, /\.\./, /localhost/i, /127\.0\.0\.1/i, /0x/i];
+    const fullUrl = url.toLowerCase();
+    for (const pattern of suspiciousPatterns) {
+      if (pattern.test(fullUrl)) {
+        message.warning('检测到可疑 URL 模式，已拒绝');
+        return;
+      }
+    }
+
     setImporting(true);
     try {
       const response = await fetch(url);
@@ -467,7 +533,7 @@ const AnnotationStudio: React.FC = () => {
   const signalQuality = activeLead ? Math.round(calculateSignalQuality(activeLead.data)) : 0;
   const studioSummary = [
     { label: '导联', value: leads.length || 0 },
-    { label: '标注', value: annotations.length || 0 },
+    { label: '标注', value: annotationStats.total || 0 },
     { label: 'AI 结果', value: inferenceResults.length || 0 },
     { label: '信号质量', value: `${signalQuality}%` },
   ];
@@ -520,7 +586,10 @@ const AnnotationStudio: React.FC = () => {
   };
 
   const handleMinimaxAnalyze = async (): Promise<void> => {
-    if (!minimaxEndpoint.trim() || !minimaxApiKey.trim()) {
+    const hasDirectConfig = minimaxEndpoint.trim() && minimaxApiKey.trim();
+    const useProxy = !hasDirectConfig;
+
+    if (!useProxy && (!minimaxEndpoint.trim() || !minimaxApiKey.trim())) {
       message.warning('请先填写 Minimax Endpoint 和 API Key');
       return;
     }
@@ -528,13 +597,19 @@ const AnnotationStudio: React.FC = () => {
     setMinimaxLoading(true);
     try {
       const signalData = leads.map((lead) => lead.data);
+
+      // Determine if we should use proxy or direct API
+      const hasDirectConfig = minimaxEndpoint.trim() && minimaxApiKey.trim();
+      const useProxy = !hasDirectConfig;
+
       const predictions = await minimaxService.analyzeECG(signalData, {
         endpoint: minimaxEndpoint.trim(),
         apiKey: minimaxApiKey.trim(),
         model: minimaxModel.trim() || undefined,
+        useProxy,
       });
       dispatch(setInferenceResults(predictions));
-      message.success('Minimax 分析完成');
+      message.success(useProxy ? 'Minimax 分析完成（通过代理）' : 'Minimax 分析完成');
     } catch (error) {
       message.error(error instanceof Error ? error.message : 'Minimax 分析失败');
     } finally {
@@ -731,128 +806,30 @@ const AnnotationStudio: React.FC = () => {
               </Space>
             </Card>
 
-            <Card className="section-card" title="数据导入" extra={<Tag color="geekblue">Sources</Tag>}>
-              <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }}>
-                <Input
-                  placeholder="粘贴 GitHub Raw JSON 链接"
-                  value={githubRawUrl}
-                  onChange={(event) => setGithubRawUrl(event.target.value)}
-                />
-                <Button icon={<LinkOutlined />} onClick={handleGithubUrlImport} loading={importing} block>
-                  从 URL 导入
-                </Button>
-              </Space>
+            <ImportPanel
+              githubRawUrl={githubRawUrl}
+              onGithubUrlChange={setGithubRawUrl}
+              onGithubUrlImport={handleGithubUrlImport}
+              importing={importing}
+              wfdbBatches={wfdbBatches}
+              onWfdbBatchUpload={handleFileUpload}
+              onWfdbFolderUpload={handleMitbihFolderUpload}
+              onSelectBatch={(batch) =>
+                applyImportedLeads(batch.leads, {
+                  recordId: batch.id,
+                  patientId: currentPatientId || undefined,
+                })
+              }
+              onClearBatches={() => setWfdbBatches([])}
+            />
 
-              <Upload.Dragger
-                className="glass-panel"
-                accept=".json,.dcm,.hl7,.hea,.dat"
-                beforeUpload={handleFileUpload}
-                multiple
-                disabled={importing}
-                showUploadList={false}
-              >
-                <p className="ant-upload-drag-icon">
-                  <CloudUploadOutlined style={{ fontSize: 42, color: '#275ef1' }} />
-                </p>
-                <p>点击或拖拽文件上传</p>
-                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  单文件支持 JSON / DICOM / HL7，WFDB 需同时提供 .hea 与 .dat
-                </p>
-              </Upload.Dragger>
-
-              <div style={{ marginTop: 12 }}>
-                <Upload.Dragger
-                  className="glass-panel"
-                  accept=".hea,.dat"
-                  beforeUpload={handleMitbihFolderUpload}
-                  multiple
-                  directory
-                  disabled={importing}
-                  showUploadList={false}
-                >
-                  <p className="ant-upload-drag-icon">
-                    <CloudUploadOutlined style={{ fontSize: 34, color: '#0f9d9a' }} />
-                  </p>
-                  <p>MIT-BIH 一键批量导入（选择文件夹）</p>
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    仅识别三位数字记录名（如 100.hea + 100.dat）
-                  </p>
-                </Upload.Dragger>
-              </div>
-
-              {wfdbBatches.length > 0 ? (
-                <div style={{ marginTop: 12 }}>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--text-muted)',
-                      marginBottom: 8,
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <span>已解析 WFDB 记录（可切换加载）</span>
-                    <Button size="small" onClick={() => setWfdbBatches([])}>
-                      清空
-                    </Button>
-                  </div>
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    {wfdbBatches.map((batch) => (
-                      <Button
-                        key={batch.id}
-                        size="small"
-                        onClick={() =>
-                          applyImportedLeads(batch.leads, {
-                            recordId: batch.id,
-                            patientId: currentPatientId || undefined,
-                          })
-                        }
-                        style={{ textAlign: 'left' }}
-                      >
-                        {batch.id} · {batch.leads.length} 导联
-                      </Button>
-                    ))}
-                  </Space>
-                </div>
-              ) : null}
-            </Card>
-
-            <Card className="section-card" title="标注工具" extra={<Tag color="purple">Hotkeys</Tag>}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
-                先选择标注类型，再在波形区双击落点；删除时先单击选中标注。
-              </div>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Button
-                  type={activeTool === 'annotate' && activeAnnotationType === 'P' ? 'primary' : 'default'}
-                  block
-                  onClick={() => handleSelectAnnotationType('P')}
-                >
-                  标注 P 波 (Ctrl+1)
-                </Button>
-                <Button
-                  type={activeTool === 'annotate' && activeAnnotationType === 'R' ? 'primary' : 'default'}
-                  block
-                  onClick={() => handleSelectAnnotationType('R')}
-                >
-                  标注 QRS (Ctrl+2)
-                </Button>
-                <Button
-                  type={activeTool === 'annotate' && activeAnnotationType === 'T' ? 'primary' : 'default'}
-                  block
-                  onClick={() => handleSelectAnnotationType('T')}
-                >
-                  标注 T 波 (Ctrl+3)
-                </Button>
-                <Button block onClick={() => setActiveTool('pan')}>
-                  切换平移模式
-                </Button>
-                <Button block danger onClick={handleDeleteAnnotation}>
-                  删除已选标注
-                </Button>
-              </Space>
-            </Card>
+            <AnnotationToolbar
+              activeTool={activeTool}
+              activeAnnotationType={activeAnnotationType}
+              onSelectTool={(tool) => setActiveTool(tool)}
+              onSelectAnnotationType={handleSelectAnnotationType}
+              onDeleteAnnotation={handleDeleteAnnotation}
+            />
           </Space>
         </Col>
 
@@ -876,218 +853,56 @@ const AnnotationStudio: React.FC = () => {
 
         <Col xs={24} xl={8}>
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Card
-              className="section-card"
-              title="智能辅助"
-              extra={<Tag color={modelLoaded ? 'green' : 'default'}>{modelLoaded ? 'Ready' : 'Idle'}</Tag>}
-            >
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <select
-                  value={analysisLeadName}
-                  onChange={(event) => setAnalysisLeadName(event.target.value)}
-                  style={{
-                    width: '100%',
-                    height: 40,
-                    borderRadius: 12,
-                    border: '1px solid rgba(26, 43, 67, 0.14)',
-                    padding: '0 12px',
-                    background: 'rgba(255,255,255,0.9)',
-                  }}
-                >
-                  {leads.map((lead) => (
-                    <option key={lead.name} value={lead.name}>
-                      {lead.name}
-                    </option>
-                  ))}
-                </select>
-                <Input
-                  size="small"
-                  type="number"
-                  min={0.2}
-                  max={0.95}
-                  step={0.05}
-                  value={peakThreshold}
-                  onChange={(event) => setPeakThreshold(Number(event.target.value))}
-                  placeholder="R 峰阈值 (0.2 - 0.95)"
-                />
-                <Button onClick={handleAutoDetectRPeaks} block>
-                  自动检测 R 峰
-                </Button>
-                <Space wrap style={{ width: '100%' }}>
-                  <Button onClick={() => handleExportCurrentRecord('json')} block>
-                    导出当前记录 JSON
-                  </Button>
-                  <Button onClick={() => handleExportCurrentRecord('csv')} block>
-                    导出当前记录 CSV
-                  </Button>
-                </Space>
-              </Space>
-            </Card>
+            <SmartAssistancePanel
+              modelLoaded={modelLoaded}
+              analysisLeadName={analysisLeadName}
+              peakThreshold={peakThreshold}
+              leads={leads}
+              onLeadNameChange={setAnalysisLeadName}
+              onPeakThresholdChange={setPeakThreshold}
+              onAutoDetectRPeaks={handleAutoDetectRPeaks}
+              onExportJSON={() => handleExportCurrentRecord('json')}
+              onExportCSV={() => handleExportCurrentRecord('csv')}
+            />
 
-            <Card
-              className="section-card"
-              title="动态回放"
-              extra={<Tag color={playbackEnabled ? 'blue' : 'default'}>{playbackEnabled ? 'Live' : 'Paused'}</Tag>}
-            >
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Button onClick={() => setPlaybackEnabled((previous) => !previous)} block>
-                  {playbackEnabled ? '暂停动态回放' : '启动动态回放'}
-                </Button>
-                <Input
-                  size="small"
-                  type="number"
-                  min={4}
-                  max={240}
-                  step={4}
-                  value={playbackStep}
-                  onChange={(event) => setPlaybackStep(Math.max(4, Number(event.target.value) || 4))}
-                  placeholder="回放速度（每帧步长）"
-                />
-                <Input
-                  size="small"
-                  type="number"
-                  min={300}
-                  max={6000}
-                  step={100}
-                  value={playbackWindowSize}
-                  onChange={(event) =>
-                    setPlaybackWindowSize(Math.max(300, Number(event.target.value) || DEFAULT_PLAYBACK_WINDOW))
-                  }
-                  placeholder="窗口长度（样本点）"
-                />
-                <Button
-                  onClick={() => {
-                    setPlaybackCursor(0);
-                    setLeads(buildStreamingLeads(sourceLeadsRef.current, 0, playbackWindowSize));
-                  }}
-                  block
-                >
-                  回放重置到起点
-                </Button>
-                <Text type="secondary">当前游标: {playbackCursor}</Text>
-              </Space>
-            </Card>
+            <PlaybackControls
+              playbackEnabled={playbackEnabled}
+              playbackStep={playbackStep}
+              playbackWindowSize={playbackWindowSize}
+              playbackCursor={playbackCursor}
+              onTogglePlayback={() => setPlaybackEnabled((prev) => !prev)}
+              onStepChange={setPlaybackStep}
+              onWindowSizeChange={setPlaybackWindowSize}
+              onReset={() => {
+                setPlaybackCursor(0);
+                setLeads(buildStreamingLeads(sourceLeadsRef.current, 0, playbackWindowSize));
+              }}
+            />
 
-            <Card className="section-card" title="AI 辅助" extra={<Tag color="gold">Inference</Tag>}>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Button icon={<RobotOutlined />} onClick={handleModelLoad} loading={modelLoading} block>
-                  {modelLoaded ? '模型已加载' : '加载模型'}
-                </Button>
-                <Button
-                  icon={<ThunderboltOutlined />}
-                  onClick={handleAnalyze}
-                  disabled={!modelLoaded}
-                  loading={isAnalyzing}
-                  block
-                >
-                  AI 分析
-                </Button>
-                <Input
-                  size="small"
-                  placeholder="Minimax Endpoint (可选)"
-                  value={minimaxEndpoint}
-                  onChange={(event) => setMinimaxEndpoint(event.target.value)}
-                />
-                <Input.Password
-                  size="small"
-                  placeholder="Minimax API Key (可选)"
-                  value={minimaxApiKey}
-                  onChange={(event) => setMinimaxApiKey(event.target.value)}
-                />
-                <Input
-                  size="small"
-                  placeholder="Minimax Model (可选)"
-                  value={minimaxModel}
-                  onChange={(event) => setMinimaxModel(event.target.value)}
-                />
-                <Button
-                  onClick={handleMinimaxAnalyze}
-                  loading={minimaxLoading}
-                  disabled={isAnalyzing || modelLoading}
-                  block
-                >
-                  调用 Minimax API
-                </Button>
-              </Space>
-            </Card>
+            <AIAnalysisPanel
+              modelLoaded={modelLoaded}
+              modelLoading={modelLoading}
+              isAnalyzing={isAnalyzing}
+              minimaxLoading={minimaxLoading}
+              minimaxEndpoint={minimaxEndpoint}
+              minimaxApiKey={minimaxApiKey}
+              minimaxModel={minimaxModel}
+              onLoadModel={handleModelLoad}
+              onAnalyze={handleAnalyze}
+              onMinimaxAnalyze={handleMinimaxAnalyze}
+              onEndpointChange={setMinimaxEndpoint}
+              onApiKeyChange={setMinimaxApiKey}
+              onModelChange={setMinimaxModel}
+            />
 
-            <Card className="section-card" title="信号概览" extra={<Tag color="cyan">Metrics</Tag>}>
-              {leads.length > 0 ? (
-                <Space direction="vertical" style={{ width: '100%' }} size={8}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Text type="secondary">导联数</Text>
-                    <Text strong>{leads.length}</Text>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Text type="secondary">采样率</Text>
-                    <Text strong>{leads[0]?.samplingRate || 0} Hz</Text>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Text type="secondary">样本数</Text>
-                    <Text strong>{leads[0]?.data.length || 0}</Text>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Text type="secondary">信号质量</Text>
-                    <Text strong>{signalQuality}%</Text>
-                  </div>
-                  <Progress
-                    percent={signalQuality}
-                    strokeColor={{ from: '#275ef1', to: '#0f9d9a' }}
-                  />
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Text type="secondary">总标注数</Text>
-                    <Text strong>{annotations.length}</Text>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Text type="secondary">R 峰标注</Text>
-                    <Text strong>{annotations.filter((item) => item.type === 'R').length}</Text>
-                  </div>
-                </Space>
-              ) : (
-                <div className="empty-panel">暂无信号数据</div>
-              )}
-            </Card>
+            <SignalMetrics
+              leads={leads}
+              signalQuality={signalQuality}
+              annotationStats={annotationStats}
+              inferenceResults={inferenceResults}
+            />
 
-            <Card className="section-card" title="AI 诊断结果" extra={<Tag color="magenta">Results</Tag>}>
-              {inferenceResults.length > 0 ? (
-                <List
-                  dataSource={inferenceResults}
-                  renderItem={(item) => (
-                    <List.Item style={{ paddingInline: 0 }}>
-                      <Space direction="vertical" style={{ width: '100%' }}>
-                        <Tag color={item.probability > 0.5 ? 'red' : 'blue'}>{item.className}</Tag>
-                        <Progress
-                          percent={Math.round(item.probability * 100)}
-                          size="small"
-                          status={item.probability > 0.5 ? 'exception' : 'normal'}
-                        />
-                      </Space>
-                    </List.Item>
-                  )}
-                />
-              ) : (
-                <div className="empty-panel">请先加载模型并运行分析</div>
-              )}
-            </Card>
-
-            <Card className="section-card" title="标注列表" extra={<Tag color="blue">Annotations</Tag>}>
-              {annotations.length > 0 ? (
-                <List
-                  size="small"
-                  dataSource={annotations}
-                  renderItem={(item) => (
-                    <List.Item style={{ paddingInline: 0 }}>
-                      <Space>
-                        <Tag color="blue">{item.type}</Tag>
-                        <span>位置: {Math.round(item.position)}</span>
-                      </Space>
-                    </List.Item>
-                  )}
-                />
-              ) : (
-                <div className="empty-panel">暂无标注</div>
-              )}
-            </Card>
+            <AnnotationList annotations={annotations} totalCount={annotationStats.total} />
           </Space>
         </Col>
       </Row>

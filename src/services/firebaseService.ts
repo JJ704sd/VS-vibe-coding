@@ -1,18 +1,19 @@
 import { initializeApp, FirebaseApp } from 'firebase/app';
-import { 
-  getFirestore, 
-  Firestore, 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  where, 
-  orderBy, 
+import {
+  getFirestore,
+  Firestore,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
   limit,
+  startAfter,
   DocumentData,
   QueryDocumentSnapshot
 } from 'firebase/firestore';
@@ -44,6 +45,26 @@ export interface FirebaseConfig {
   appId: string;
 }
 
+function getFirebaseConfigFromEnv(): FirebaseConfig {
+  const config: FirebaseConfig = {
+    apiKey: import.meta.env.REACT_APP_FIREBASE_API_KEY || '',
+    authDomain: import.meta.env.REACT_APP_FIREBASE_AUTH_DOMAIN || '',
+    projectId: import.meta.env.REACT_APP_FIREBASE_PROJECT_ID || '',
+    storageBucket: import.meta.env.REACT_APP_FIREBASE_STORAGE_BUCKET || '',
+    messagingSenderId: import.meta.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || '',
+    appId: import.meta.env.REACT_APP_FIREBASE_APP_ID || '',
+  };
+
+  if (!config.apiKey || !config.projectId) {
+    console.warn(
+      '[FirebaseService] Firebase config is incomplete. ' +
+      'Please set REACT_APP_FIREBASE_* environment variables in your .env file.'
+    );
+  }
+
+  return config;
+}
+
 class FirebaseService {
   private app: FirebaseApp | null = null;
   private db: Firestore | null = null;
@@ -51,10 +72,11 @@ class FirebaseService {
   private auth: Auth | null = null;
   private initialized = false;
 
-  initialize(config: FirebaseConfig): void {
+  initialize(config?: FirebaseConfig): void {
     if (this.initialized) return;
 
-    this.app = initializeApp(config);
+    const firebaseConfig = config || getFirebaseConfigFromEnv();
+    this.app = initializeApp(firebaseConfig);
     this.db = getFirestore(this.app);
     this.storage = getStorage(this.app);
     this.auth = getAuth(this.app);
@@ -63,6 +85,14 @@ class FirebaseService {
 
   isInitialized(): boolean {
     return this.initialized;
+  }
+
+  /**
+   * @deprecated Use environment variables instead. This method exists for backwards compatibility.
+   * Pass FirebaseConfig from a secure backend or environment variables.
+   */
+  initializeWithConfig(config: FirebaseConfig): void {
+    this.initialize(config);
   }
 
   async signIn(email: string, password: string): Promise<User | null> {
@@ -132,13 +162,56 @@ class FirebaseService {
   async searchPatients(searchTerm: string): Promise<Patient[]> {
     if (!this.db) throw new Error('Firebase not initialized');
 
-    const allPatients = await this.getAllPatients();
-    const term = searchTerm.toLowerCase();
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) {
+      return this.getAllPatients();
+    }
 
-    return allPatients.filter(p => 
-      p.name.toLowerCase().includes(term) || 
-      p.id.toLowerCase().includes(term)
-    );
+    // Firestore doesn't support "contains" queries natively.
+    // For production, consider using Algolia, Typesense, or Cloud Functions
+    // with a search index. Here we use prefix-based pagination with orderBy.
+    //
+    // Option 1: Client-side filtering with limited fetch (current approach)
+    // Option 2: Firestore prefix search using startAt/endAt on ordered fields
+    // Option 3: Dedicated search service (Algolia, etc.)
+    const searchResults: Patient[] = [];
+    let hasMore = true;
+    let lastDoc: QueryDocumentSnapshot<DocumentData> | null = null;
+    const maxResults = 50;
+    const maxPages = 3;
+
+    for (let page = 0; page < maxPages && hasMore; page++) {
+      let queryBuilder = query(
+        collection(this.db, 'patients'),
+        orderBy('updatedAt', 'desc'),
+        limit(30)
+      );
+
+      if (lastDoc) {
+        queryBuilder = query(queryBuilder, startAfter(lastDoc));
+      }
+
+      const querySnapshot = await getDocs(queryBuilder);
+
+      if (querySnapshot.empty) {
+        break;
+      }
+
+      for (const doc of querySnapshot.docs) {
+        const patient = { id: doc.id, ...doc.data() } as Patient;
+        if (
+          patient.name?.toLowerCase().includes(term) ||
+          patient.id?.toLowerCase().includes(term)
+        ) {
+          searchResults.push(patient);
+        }
+        lastDoc = doc;
+      }
+
+      hasMore = querySnapshot.docs.length === 30 && searchResults.length < maxResults;
+    }
+
+    return searchResults.slice(0, maxResults);
   }
 
   async updatePatient(patientId: string, data: Partial<Patient>): Promise<void> {
@@ -319,4 +392,5 @@ class FirebaseService {
 }
 
 export const firebaseService = new FirebaseService();
+export { FirebaseConfig };
 export default FirebaseService;
