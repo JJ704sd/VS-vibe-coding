@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Layout, Spin } from 'antd';
 import MainLayout from './components/Layout/MainLayout';
+import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
 
 const { Content } = Layout;
@@ -24,19 +25,21 @@ const App: React.FC = () => {
   return (
     <MainLayout>
       <Content className="app-content">
-        <Suspense fallback={routeFallback}>
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/cases" element={<CaseList />} />
-            <Route path="/cases/:patientId" element={<CaseDetail />} />
-            <Route path="/annotation" element={<AnnotationStudio />} />
-            <Route path="/annotation/:recordId" element={<AnnotationStudio />} />
-            <Route path="/ai-models" element={<AIModels />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={routeFallback}>
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/cases" element={<CaseList />} />
+              <Route path="/cases/:patientId" element={<CaseDetail />} />
+              <Route path="/annotation" element={<AnnotationStudio />} />
+              <Route path="/annotation/:recordId" element={<AnnotationStudio />} />
+              <Route path="/ai-models" element={<AIModels />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </Suspense>
+        </ErrorBoundary>
       </Content>
     </MainLayout>
   );

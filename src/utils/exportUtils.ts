@@ -57,14 +57,37 @@ export function exportToCSV(record: ECGRecord): string {
   
   lines.push('');
   lines.push('Lead Data');
-  
+
   const header = ['Sample', ...record.leads.map(l => l.name)].join(',');
   lines.push(header);
-  
-  const numSamples = record.leads[0]?.data.length || 0;
-  for (let i = 0; i < numSamples; i++) {
-    const row = [i, ...record.leads.map(lead => lead.data[i]?.toFixed(4) || 0)];
+
+  // Find the minimum length across all leads to avoid index out of bounds
+  const minLength = record.leads.reduce(
+    (min, lead) => Math.min(min, lead.data?.length || 0),
+    record.leads[0]?.data?.length || 0
+  );
+
+  for (let i = 0; i < minLength; i++) {
+    const row = [
+      i,
+      ...record.leads.map((lead) => {
+        const value = lead.data?.[i];
+        return typeof value === 'number' ? value.toFixed(4) : '';
+      }),
+    ];
     lines.push(row.join(','));
+  }
+
+  // Warn if leads have different lengths
+  const maxLength = record.leads.reduce(
+    (max, lead) => Math.max(max, lead.data?.length || 0),
+    0
+  );
+  if (minLength < maxLength) {
+    console.warn(
+      `[exportUtils] Lead data length mismatch: min=${minLength}, max=${maxLength}. ` +
+        `Only first ${minLength} samples exported.`
+    );
   }
 
   return lines.join('\n');

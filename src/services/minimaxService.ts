@@ -4,6 +4,7 @@ export interface MinimaxConfig {
   endpoint: string;
   apiKey: string;
   model?: string;
+  useProxy?: boolean;
 }
 
 interface MinimaxResponse {
@@ -14,6 +15,7 @@ interface MinimaxResponse {
 }
 
 const DEFAULT_CLASSES = ['正常', '房颤', '室上性心动过速', '室性心动过速', '停搏'];
+const PROXY_ENDPOINT = '/api/ecg/analyze';
 type RawPredictionItem = {
   className?: string;
   probability?: number;
@@ -22,7 +24,60 @@ type RawPredictionItem = {
 };
 
 class MinimaxService {
+  /**
+   * Analyze ECG data using Minimax API.
+   *
+   * When useProxy is true, requests are sent to the local proxy server
+   * which securely forwards them to Minimax without exposing the API key.
+   */
   async analyzeECG(signalData: number[][], config: MinimaxConfig): Promise<ModelPrediction[]> {
+    const useProxy = config.useProxy ?? true;
+
+    if (useProxy) {
+      return this.analyzeViaProxy(signalData, config);
+    }
+
+    // Direct API call (not recommended - exposes API key)
+    return this.analyzeDirect(signalData, config);
+  }
+
+  private async analyzeViaProxy(
+    signalData: number[][],
+    config: MinimaxConfig
+  ): Promise<ModelPrediction[]> {
+    const proxyUrl = PROXY_ENDPOINT;
+
+    const payload = {
+      model: config.model || 'abab6.5s-chat',
+      signalData,
+      _startTime: Date.now(),
+    };
+
+    const response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`代理调用失败: HTTP ${response.status}`);
+    }
+
+    const raw = (await response.json()) as MinimaxResponse;
+    const predictions = this.extractPredictions(raw);
+    if (predictions.length > 0) {
+      return predictions;
+    }
+
+    throw new Error('代理返回内容中未解析到有效 predictions');
+  }
+
+  private async analyzeDirect(
+    signalData: number[][],
+    config: MinimaxConfig
+  ): Promise<ModelPrediction[]> {
     if (!config.endpoint.trim()) {
       throw new Error('Minimax endpoint 不能为空');
     }
