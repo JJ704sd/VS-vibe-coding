@@ -30,7 +30,7 @@ app = FastAPI(title="ECGFounder Sidecar", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -104,11 +104,34 @@ async def submit_training_task(body: dict):
         "id": task_id,
         "dataset": body.get("dataset"),
         "config": body.get("config", {}),
-        "status": "pending",
+        "status": "queued",
         "submitted_at": time.time(),
     }
     write_train_task(task)
     return {"ok": True, "task_id": task_id}
+
+
+@app.post("/api/training/stop")
+def stop_training():
+    """Send stop signal to finetune_runner and cancel training subprocess."""
+    import shutil
+    from pathlib import Path
+
+    ECGFOUNDER_BASE = Path("D:/ECG founder/ECGFounder")
+    STOP_FILE = ECGFOUNDER_BASE / "stop_signal.txt"
+    TRAIN_TASK = ECGFOUNDER_BASE / "train_task.json"
+
+    STOP_FILE.write_text("stop", encoding="utf-8")
+    write_shared_state({
+        "status": "idle",
+        "error": "Stopped by user",
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    })
+    try:
+        TRAIN_TASK.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return {"ok": True}
 
 
 @app.get("/api/training/task/status")
@@ -118,6 +141,22 @@ async def get_task_status():
 
 
 # ── 历史记录 ────────────────────────────────────────────────────────────────
+
+@app.delete("/api/training/history/{round_name}")
+async def delete_training_round(round_name: str):
+    """Delete a training round (directory and all its files)"""
+    import shutil
+
+    round_dir = ECGFOUNDER_OUTPUTS / round_name
+    if not round_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Round {round_name} not found")
+
+    try:
+        shutil.rmtree(round_dir)
+        return {"ok": True, "deleted": round_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
+
 
 @app.get("/api/training/history")
 async def get_training_history():

@@ -43,8 +43,8 @@ def parse_train_log(round_name: str) -> list[dict]:
                 current = {}
             continue
 
-        # Epoch 行: "Epoch 1 (Stage 1)"
-        epoch_match = re.match(r"Epoch\s+(\d+)\s+\(Stage\s+\d+\)", line)
+        # Epoch 行: "Epoch 1 (Stage 1)"  或  "Epoch 2" (tqdm 风格)
+        epoch_match = re.match(r"^Epoch\s+(\d+)(?:\s+\(Stage\s+\d+\))?$", line)
         if epoch_match:
             if current and current.get("epoch") is not None:
                 current["stage"] = current_stage
@@ -54,29 +54,36 @@ def parse_train_log(round_name: str) -> list[dict]:
             continue
 
         # Train 行: "  Train Loss=1.2563 Acc=0.6031 F1=0.6089"
-        train_match = re.match(r"Train\s+Loss=([\d.]+)\s+Acc=([\d.]+)\s+F1=([\d.]+)", line)
+        #   或: "Train Loss: 1.4429" / "Train Acc : 0.7188" (tqdm 格式)
+        train_match = re.match(r"Train\s+Loss[:=]\s*([\d.]+)", line)
         if train_match:
             current["train_loss"] = float(train_match.group(1))
-            current["train_acc"] = float(train_match.group(2))
-            current["train_f1"] = float(train_match.group(3))
+            continue
+        train_acc_match = re.match(r"Train\s+Acc\s*:\s*([\d.]+)", line)
+        if train_acc_match:
+            current["train_acc"] = float(train_acc_match.group(1))
+            continue
+        train_f1_match = re.match(r"Train\s+F1\s*:\s*([\d.]+)", line)
+        if train_f1_match:
+            current["train_f1"] = float(train_f1_match.group(1))
             continue
 
         # Val 行: "  Val   Acc=0.6900 MacroF1=0.6852 WeightedF1=0.6852 LR=9.89e-06"
+        #   或: "Val Acc   : 0.7075" / "Val F1    : 0.7027" (tqdm 格式)
         val_match = re.match(
-            r"Val\s+Acc=([\d.]+)\s+MacroF1=([\d.]+)\s+WeightedF1=([\d.]+)(?:\s+LR=([\d.e+-]+))?",
-            line
+            r"Val\s+Acc\s*[:=]\s*([\d.]+)", line
         )
         if val_match:
             current["val_acc"] = float(val_match.group(1))
-            current["val_macro_f1"] = float(val_match.group(2))
-            current["val_weighted_f1"] = float(val_match.group(3))
-            lr_group = val_match.group(4)
-            if lr_group is not None:
-                current["lr"] = float(lr_group)
+            continue
+        val_f1_match = re.match(r"Val\s+F1\s*:\s*([\d.]+)", line)
+        if val_f1_match:
+            current["val_macro_f1"] = float(val_f1_match.group(1))
             continue
 
         # SAVE 行: "  [SAVE] best_macro_f1=0.6852"
-        save_match = re.match(r"\[SAVE\]\s+best_macro_f1=([\d.]+)", line)
+        #   或: "Saved best model: ./checkpoint/mitbih_ecgfounder_4060_best.pth"
+        save_match = re.match(r"(\[SAVE\]|Saved best model)", line)
         if save_match:
             current["is_best"] = True
             continue
