@@ -7,8 +7,8 @@ import filelock
 from pathlib import Path
 from typing import Optional
 
-# 路径常量 — 注意 "ECG founder" 包含空格
-ECGFOUNDER_BASE = Path("D:/ECG founder/ECG founder")
+# 路径常量 — 注意 "ECG founder" 文件夹中还有 "ECGFounder" 子目录
+ECGFOUNDER_BASE = Path("D:/ECG founder/ECGFounder")
 SHARED_STATE_FILE = ECGFOUNDER_BASE / "shared_state.json"
 PARAM_STATS_FILE = ECGFOUNDER_BASE / "param_stats.json"
 TRAIN_TASK_FILE = ECGFOUNDER_BASE / "train_task.json"
