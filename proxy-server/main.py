@@ -126,7 +126,7 @@ async def get_training_history():
     for r in rounds:
         round_name = r["name"]
         eval_data = parse_evaluation(round_name)
-        best_f1 = eval_data.get("best_macro_f1", 0) if eval_data else 0
+        best_f1 = eval_data.get("test_macro_f1", 0) if eval_data else 0
         test_acc = eval_data.get("test_accuracy", 0) if eval_data else 0
         result.append({
             "round": round_name,
@@ -173,7 +173,7 @@ async def list_checkpoints():
             continue
         round_name = round_item.name
         eval_data = parse_evaluation(round_name)
-        best_f1 = eval_data.get("best_macro_f1", 0) if eval_data else 0
+        best_f1 = eval_data.get("test_macro_f1", 0) if eval_data else 0
         try:
             round_num = int(round_name.split("_")[1])
         except ValueError:
