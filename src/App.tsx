@@ -13,6 +13,7 @@ const AnnotationStudio = lazy(
   () => import(/* webpackChunkName: "annotation-studio-page" */ './pages/AnnotationStudio')
 );
 const AIModels = lazy(() => import(/* webpackChunkName: "ai-models-page" */ './pages/AIModels'));
+const TrainingDashboard = lazy(() => import(/* webpackChunkName: "training-dashboard-page" */ './pages/TrainingDashboard'));
 const Settings = lazy(() => import(/* webpackChunkName: "settings-page" */ './pages/Settings'));
 
 const routeFallback = (
@@ -35,6 +36,7 @@ const App: React.FC = () => {
               <Route path="/annotation" element={<AnnotationStudio />} />
               <Route path="/annotation/:recordId" element={<AnnotationStudio />} />
               <Route path="/ai-models" element={<AIModels />} />
+              <Route path="/training" element={<TrainingDashboard />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
