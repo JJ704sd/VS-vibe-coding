@@ -18,7 +18,7 @@ import {
   Typography,
   message,
 } from 'antd';
-import { DownloadOutlined } from '@ant-design/icons';
+import { DownloadOutlined, StopOutlined } from '@ant-design/icons';
 import * as trainingApi from '../services/trainingApi';
 import type {
   HistoryRound,
@@ -41,9 +41,10 @@ interface HistoryTableProps {
   rounds: HistoryRound[];
   loading: boolean;
   onSelectRound: (round: HistoryRound) => void;
+  onDeleteRound: (round: string) => void;
 }
 
-const HistoryTable: React.FC<HistoryTableProps> = ({ rounds, loading, onSelectRound }) => {
+const HistoryTable: React.FC<HistoryTableProps> = ({ rounds, loading, onSelectRound, onDeleteRound }) => {
   const columns = [
     {
       title: 'Round',
@@ -67,9 +68,14 @@ const HistoryTable: React.FC<HistoryTableProps> = ({ rounds, loading, onSelectRo
       title: 'Action',
       key: 'action',
       render: (_: unknown, record: HistoryRound) => (
-        <Button type="link" onClick={() => onSelectRound(record)}>
-          查看详情
-        </Button>
+        <Space>
+          <Button type="link" onClick={() => onSelectRound(record)}>
+            查看详情
+          </Button>
+          <Button type="link" danger onClick={() => onDeleteRound(record.round)}>
+            删除
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -188,6 +194,16 @@ const LiveTrainingPanel: React.FC<LiveTrainingPanelProps> = ({ onSubmitTask }) =
     }
   };
 
+  const handleStop = async () => {
+    try {
+      await trainingApi.stopTraining();
+      message.success('已停止训练');
+    } catch (err) {
+      message.error('停止失败');
+      console.error(err);
+    }
+  };
+
   const isTraining = state?.status === 'training';
   const percent =
     state?.current_epoch != null && state?.total_epochs != null
@@ -248,6 +264,11 @@ const LiveTrainingPanel: React.FC<LiveTrainingPanelProps> = ({ onSubmitTask }) =
             <Button type="primary" htmlType="submit" loading={loading} block>
               开始训练
             </Button>
+            {state?.status === 'training' || state?.status === 'running' && (
+              <Button danger block style={{ marginTop: 8 }} onClick={handleStop} icon={<StopOutlined />}>
+                停止训练
+              </Button>
+            )}
           </Form>
         </Card>
       </Col>
@@ -325,6 +346,26 @@ const TrainingDashboard: React.FC = () => {
     setDetailVisible(true);
   };
 
+  const handleDeleteRound = async (round: string) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除训练记录 ${round} 吗？此操作不可恢复。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      async onOk() {
+        try {
+          await trainingApi.deleteTrainingRound(round);
+          message.success('删除成功');
+          setRounds((prev) => prev.filter((r) => r.round !== round));
+        } catch (err) {
+          message.error('删除失败');
+          console.error(err);
+        }
+      },
+    });
+  };
+
   const handleSubmitTask = async (config: trainingApi.TrainTaskConfig) => {
     await trainingApi.submitTrainingTask(config);
   };
@@ -336,7 +377,7 @@ const TrainingDashboard: React.FC = () => {
       </div>
       <Tabs defaultActiveKey="history">
         <TabPane tab="历史训练记录" key="history">
-          <HistoryTable rounds={rounds} loading={loading} onSelectRound={handleSelectRound} />
+          <HistoryTable rounds={rounds} loading={loading} onSelectRound={handleSelectRound} onDeleteRound={handleDeleteRound} />
         </TabPane>
         <TabPane tab="实时训练" key="live">
           <LiveTrainingPanel onSubmitTask={handleSubmitTask} />
