@@ -15,6 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 
 # 本地模块
 from state import (
+    ECGFOUNDER_BASE,
     read_shared_state,
     write_shared_state,
     read_param_stats,
@@ -24,7 +25,18 @@ from state import (
 )
 from parsers import parse_train_log, parse_evaluation, list_history_rounds
 
-ECGFOUNDER_OUTPUTS = Path("D:/ECG founder/ECGFounder/outputs")
+from assistant.memory_store import MemoryStore
+from assistant.rag_store import RAGStore
+from assistant.service import AssistantService
+
+ECGFOUNDER_OUTPUTS = ECGFOUNDER_BASE / "outputs"
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ASSISTANT_MEMORY_FILE = Path(__file__).resolve().parent / "assistant_memory.json"
+assistant_service = AssistantService(
+    MemoryStore(ASSISTANT_MEMORY_FILE),
+    RAGStore(REPO_ROOT),
+)
 
 app = FastAPI(title="ECGFounder Sidecar", version="1.0.0")
 
@@ -42,6 +54,29 @@ app.add_middleware(
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "ecgfounder-sidecar", "port": 6090}
+
+
+# ── Assistant Routes ──────────────────────────────────────────────────────────
+
+@app.post("/api/assistant/knowledge/rebuild")
+async def rebuild_assistant_knowledge():
+    return assistant_service.rebuild_knowledge()
+
+
+@app.post("/api/assistant/memory/case")
+async def record_assistant_case_snapshot(body: dict):
+    if not body.get("recordId"):
+        raise HTTPException(status_code=400, detail="recordId is required")
+    return assistant_service.record_case_snapshot(body)
+
+
+@app.post("/api/assistant/ask")
+async def ask_assistant(body: dict):
+    question = str(body.get("question", "")).strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+    context = body.get("context") or {}
+    return assistant_service.ask(question, context)
 
 
 # ── 训练状态 ────────────────────────────────────────────────────────────────
@@ -115,9 +150,7 @@ async def submit_training_task(body: dict):
 def stop_training():
     """Send stop signal to finetune_runner and cancel training subprocess."""
     import shutil
-    from pathlib import Path
 
-    ECGFOUNDER_BASE = Path("D:/ECG founder/ECGFounder")
     STOP_FILE = ECGFOUNDER_BASE / "stop_signal.txt"
     TRAIN_TASK = ECGFOUNDER_BASE / "train_task.json"
 
@@ -204,6 +237,7 @@ async def get_round_param_stats(round_name: str):
 
 # ── Checkpoints ─────────────────────────────────────────────────────────────
 
+@app.get("/api/training/checkpoints")
 @app.get("/api/checkpoints")
 async def list_checkpoints():
     checkpoints = []
@@ -229,6 +263,7 @@ async def list_checkpoints():
     return checkpoints
 
 
+@app.get("/api/training/checkpoints/{round_name}/{filename}")
 @app.get("/api/checkpoints/{round_name}/{filename}")
 async def download_checkpoint(round_name: str, filename: str):
     file_path = ECGFOUNDER_OUTPUTS / round_name / filename

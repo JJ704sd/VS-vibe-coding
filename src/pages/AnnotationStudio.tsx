@@ -35,6 +35,7 @@ import { setModelLoading, setModelLoaded, setInferenceResults, setAnnotations } 
 import { modelService } from '../services/modelService';
 import { firebaseService } from '../services/firebaseService';
 import { Annotation, ECGLead } from '../types';
+import { AssistantCaseSnapshot } from '../services/ecgAssistantApi';
 import { ecgParserService } from '../services/ecgParser';
 import { WFDBParser } from '../utils/dicomParser';
 import { minimaxService } from '../services/minimaxService';
@@ -538,6 +539,28 @@ const AnnotationStudio: React.FC = () => {
     { label: '信号质量', value: `${signalQuality}%` },
   ];
 
+  const assistantRecordId = currentRecordId || (wfdbBatches.length > 0 ? wfdbBatches[0].id : 'local-current-record');
+
+  const assistantCaseSnapshot: AssistantCaseSnapshot = {
+    patientId: currentPatientId || 'local-patient',
+    recordId: assistantRecordId,
+    leadCount: leads.length,
+    primaryLead: activeLead?.name || analysisLeadName,
+    annotationCount: annotationStats.total || annotations.length,
+    signalQuality,
+    annotations: annotations.map((annotation) => ({
+      id: annotation.id,
+      type: annotation.type,
+      position: annotation.position,
+      confidence: annotation.confidence,
+      manual: annotation.manual,
+    })),
+    aiResults: inferenceResults.map((result) => ({
+      className: result.className,
+      probability: result.probability,
+    })),
+  };
+
   const buildRecordId = (): string => {
     if (currentRecordId) {
       return currentRecordId;
@@ -858,6 +881,7 @@ const AnnotationStudio: React.FC = () => {
               analysisLeadName={analysisLeadName}
               peakThreshold={peakThreshold}
               leads={leads}
+              caseSnapshot={assistantCaseSnapshot}
               onLeadNameChange={setAnalysisLeadName}
               onPeakThresholdChange={setPeakThreshold}
               onAutoDetectRPeaks={handleAutoDetectRPeaks}
