@@ -28,3 +28,25 @@ def test_forget_case_memory_by_record(tmp_path):
 
     assert removed == 1
     assert store.search("标注记忆", {"patientId": "p1", "recordId": "r1"}) == []
+
+
+def test_store_initialization_does_not_create_runtime_file(tmp_path):
+    memory_path = tmp_path / "assistant_memory.json"
+
+    MemoryStore(memory_path)
+
+    assert not memory_path.exists()
+
+
+def test_forget_with_patient_and_record_only_removes_exact_case(tmp_path):
+    store = MemoryStore(tmp_path / "assistant_memory.json")
+    store.add_case_snapshot({"patientId": "p1", "recordId": "r1", "annotationCount": 1})
+    store.add_case_snapshot({"patientId": "p1", "recordId": "r2", "annotationCount": 2})
+    store.add_case_snapshot({"patientId": "p2", "recordId": "r1", "annotationCount": 3})
+
+    removed = store.forget(patient_id="p1", record_id="r1")
+
+    assert removed == 1
+    assert store.search("记忆", {"patientId": "p1", "recordId": "r1"}) == []
+    assert store.search("记忆", {"patientId": "p1", "recordId": "r2"})
+    assert store.search("记忆", {"patientId": "p2", "recordId": "r1"})

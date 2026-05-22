@@ -1,5 +1,11 @@
 const API_BASE = 'http://localhost:6090';
 
+export interface AssistantHealth {
+  available: boolean;
+  service?: string;
+  message: string;
+}
+
 export interface AssistantCaseSnapshot {
   patientId: string;
   recordId: string;
@@ -22,7 +28,7 @@ export interface AssistantCaseSnapshot {
 }
 
 export interface AssistantSource {
-  type: 'memory' | 'knowledge';
+  type: 'memory' | 'knowledge' | 'case';
   title: string;
   path: string;
   score: number;
@@ -30,9 +36,29 @@ export interface AssistantSource {
 }
 
 export interface AssistantAnswer {
-  mode: 'memory' | 'knowledge';
+  mode: 'memory' | 'knowledge' | 'case';
   answer: string;
   sources: AssistantSource[];
+}
+
+export async function checkAssistantHealth(): Promise<AssistantHealth> {
+  try {
+    const res = await fetch(`${API_BASE}/health`);
+    if (!res.ok) {
+      return { available: false, message: '助手服务未启动' };
+    }
+    const body = (await res.json()) as { status?: string; service?: string };
+    if (body.status !== 'ok') {
+      return { available: false, service: body.service, message: '助手服务状态异常' };
+    }
+    return {
+      available: true,
+      service: body.service,
+      message: '助手服务已连接',
+    };
+  } catch {
+    return { available: false, message: '助手服务未启动' };
+  }
 }
 
 export async function rebuildAssistantKnowledge(): Promise<{ ok: boolean; indexedDocuments: number; chunks: number }> {

@@ -3,22 +3,11 @@ import {
   Card,
   Row,
   Col,
-  Button,
-  Upload,
   message,
-  List,
-  Progress,
   Tag,
   Space,
-  Input,
   Typography,
 } from 'antd';
-import {
-  CloudUploadOutlined,
-  RobotOutlined,
-  ThunderboltOutlined,
-  LinkOutlined,
-} from '@ant-design/icons';
 import { useEffect, useRef, useCallback } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import ECGCanvas from '../components/Canvas/ECGCanvas';
@@ -27,7 +16,6 @@ import {
   selectModelLoading,
   selectModelLoaded,
   selectInferenceResults,
-  selectAnnotationCount,
   selectAnnotationStats,
   selectAnnotations,
 } from '../store/selectors';

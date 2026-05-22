@@ -16,3 +16,18 @@ def test_rebuild_indexes_markdown_and_returns_sources(tmp_path):
     assert matches
     assert matches[0]["type"] == "knowledge"
     assert "README.md" in matches[0]["path"]
+
+
+def test_rebuild_reports_unreadable_markdown_sources(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "README.md").mkdir()
+
+    store = RAGStore(root)
+    summary = store.rebuild()
+
+    assert summary["indexedDocuments"] == 0
+    assert summary["chunks"] == 0
+    assert summary["skippedDocuments"] == 1
+    assert summary["errors"]
+    assert "README.md" in summary["errors"][0]["path"]

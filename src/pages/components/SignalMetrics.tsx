@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, Space, Typography, Progress, List, Tag } from 'antd';
-import { Annotation, ModelPrediction } from '../../types';
+import { ModelPrediction } from '../../types';
 
 const { Text } = Typography;
 

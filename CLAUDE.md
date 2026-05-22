@@ -67,17 +67,27 @@ python -m pytest tests/test_assistant_memory.py -v  # 单个测试文件
 
 前端通过 SSE + REST 与 proxy-server 通信，后端转发给 `D:/ECG founder/ECGFounder/` 下的 Python 训练调度进程。
 
-关键路径:
+**输出目录结构** — `outputs/` 包含多个数据集：
+- `round_N/` 子目录 → MIT-BIH 数据集（`train_*.log`, `result.json`, `test_evaluation_*.json`, `param_history.json`）
+- `cpsc2018_*/` 子目录 → CPSC2018 数据集（只有 `history_*.csv` 和 `best_*.pth`，无日志/评估文件）
+
+**关键路径**:
 | 文件 | 用途 |
 |------|------|
-| `D:/ECG founder/ECGFounder/outputs/round_N/best_macro_f1.pth` | 最佳模型权重 |
-| `D:/ECG founder/ECGFounder/outputs/round_N/param_history.json` | 逐 epoch 参数统计 |
-| `D:/ECG founder/ECGFounder/outputs/round_N/train_*.log` | 训练日志 |
-| `D:/ECG founder/ECGFounder/shared_state.json` | 实时训练状态 |
-| `D:/ECG founder/ECGFounder/param_stats.json` | 当前参数统计 |
-| `D:/ECG founder/ECGFounder/train_task.json` | 任务队列 |
+| `outputs/round_N/train_*.log` | MIT-BIH 训练日志 |
+| `outputs/round_N/result.json` | MIT-BIH 最佳指标 |
+| `outputs/cpsc2018_*/history_*.csv` | CPSC2018 训练历史（备用数据源） |
+| `outputs/*/best_*.pth` | 最佳模型权重（通配匹配，支持 MIT-BIH 和 CPSC2018 命名） |
+| `outputs/round_N/param_history.json` | 逐 epoch 参数统计 |
+| `shared_state.json` | 实时训练状态 |
+| `param_stats.json` | 当前参数统计 |
+| `train_task.json` | 任务队列 |
 
-训练状态流: `POST /api/training/task` -> 写入 train_task.json -> finetune_runner.py 轮询检测 -> 启动训练子进程 -> 每 2s 解析日志更新 shared_state.json -> param_observer.py 检测新 epoch -> 写入 param_stats.json -> proxy-server SSE 推送前端
+**训练状态流**: `POST /api/training/task` → 写入 train_task.json → finetune_runner.py 轮询检测 → 启动训练子进程 → 每 2s 解析日志更新 shared_state.json → param_observer.py 检测新 epoch → 写入 param_stats.json → proxy-server SSE 推送前端
+
+**性能优化**：SSE streams 在 idle/done 状态下降为 30s 轮询（训练中 2s）；param_observer 在同一 epoch 只加载一次 checkpoint（避免重复加载 100MB+ 模型文件）。
+
+**前端表单默认值**：epochs=5, batch_size=16（已调低以减轻计算压力）。
 
 GPU OOM 时调整: `BATCH_SIZE = 16`（默认 64），`MAX_PER_CLASS = 400`
 

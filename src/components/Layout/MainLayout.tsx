@@ -7,6 +7,7 @@ import {
   EditOutlined,
   RobotOutlined,
   SettingOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 
 const { Sider, Header } = Layout;
@@ -63,6 +64,11 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       key: '/ai-models',
       icon: <RobotOutlined />,
       label: 'AI 模型',
+    },
+    {
+      key: '/training',
+      icon: <ThunderboltOutlined />,
+      label: '训练看板',
     },
     {
       key: '/settings',

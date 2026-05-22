@@ -5,6 +5,7 @@ FastAPI Sidecar — 暴露训练状态 API 和 SSE 实时流
 """
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 
@@ -23,20 +24,35 @@ from state import (
     write_train_task,
     delete_train_task,
 )
-from parsers import parse_train_log, parse_evaluation, list_history_rounds
+from parsers import (
+    parse_train_log,
+    parse_evaluation,
+    list_history_rounds,
+    list_all_history_with_dataset,
+    parse_history_csv_epochs,
+)
 
 from assistant.memory_store import MemoryStore
 from assistant.rag_store import RAGStore
 from assistant.service import AssistantService
+from assistant.training_diagnostics import diagnose_training, diagnose_training_history
 
 ECGFOUNDER_OUTPUTS = ECGFOUNDER_BASE / "outputs"
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ASSISTANT_MEMORY_FILE = Path(__file__).resolve().parent / "assistant_memory.json"
-assistant_service = AssistantService(
-    MemoryStore(ASSISTANT_MEMORY_FILE),
-    RAGStore(REPO_ROOT),
-)
+DEFAULT_ASSISTANT_MEMORY_FILE = Path(__file__).resolve().parent / ".data" / "assistant_memory.json"
+_assistant_service: AssistantService | None = None
+
+
+def get_assistant_service() -> AssistantService:
+    global _assistant_service
+    if _assistant_service is None:
+        memory_file = Path(os.environ.get("ASSISTANT_MEMORY_FILE", str(DEFAULT_ASSISTANT_MEMORY_FILE)))
+        _assistant_service = AssistantService(
+            MemoryStore(memory_file),
+            RAGStore(REPO_ROOT),
+        )
+    return _assistant_service
 
 app = FastAPI(title="ECGFounder Sidecar", version="1.0.0")
 
@@ -60,14 +76,14 @@ async def health():
 
 @app.post("/api/assistant/knowledge/rebuild")
 async def rebuild_assistant_knowledge():
-    return assistant_service.rebuild_knowledge()
+    return get_assistant_service().rebuild_knowledge()
 
 
 @app.post("/api/assistant/memory/case")
 async def record_assistant_case_snapshot(body: dict):
     if not body.get("recordId"):
         raise HTTPException(status_code=400, detail="recordId is required")
-    return assistant_service.record_case_snapshot(body)
+    return get_assistant_service().record_case_snapshot(body)
 
 
 @app.post("/api/assistant/ask")
@@ -76,7 +92,21 @@ async def ask_assistant(body: dict):
     if not question:
         raise HTTPException(status_code=400, detail="question is required")
     context = body.get("context") or {}
-    return assistant_service.ask(question, context)
+    return get_assistant_service().ask(question, context)
+
+
+@app.get("/api/assistant/training/diagnose")
+async def diagnose_training_assistant():
+    return diagnose_training(
+        read_shared_state(),
+        read_param_stats(),
+        list_all_history_with_dataset(),
+    )
+
+
+@app.get("/api/assistant/training/history/diagnose")
+async def diagnose_training_history_assistant():
+    return diagnose_training_history(list_all_history_with_dataset())
 
 
 # ── 训练状态 ────────────────────────────────────────────────────────────────
@@ -90,13 +120,22 @@ async def get_training_state():
 async def training_state_stream():
     async def event_generator():
         last_mtime = ""
+        idle_count = 0
         while True:
             state = read_shared_state()
             current_mtime = state.get("updated_at", "")
+            status = state.get("status", "idle")
+
             if current_mtime != last_mtime:
                 last_mtime = current_mtime
+                idle_count = 0
                 yield {"event": "state_update", "data": json.dumps(state, default=str)}
-            await asyncio.sleep(2)
+            else:
+                idle_count += 1
+
+            # Training: 2s poll; idle/done: 30s poll (reduce CPU)
+            sleep_interval = 2 if status in ("training", "running") else 30
+            await asyncio.sleep(sleep_interval)
 
     return EventSourceResponse(event_generator())
 
@@ -115,13 +154,21 @@ async def get_param_stats():
 async def param_stats_stream():
     async def event_generator():
         last_data = None
+        idle_count = 0
         while True:
             stats = read_param_stats()
             current_data = json.dumps(stats, default=str) if stats else None
             if current_data != last_data:
                 last_data = current_data
-                yield {"event": "param_update", "data": current_data}
-            await asyncio.sleep(5)
+                idle_count = 0
+                if current_data:
+                    yield {"event": "param_update", "data": current_data}
+            else:
+                idle_count += 1
+
+            # Training: 5s poll; idle/done: 30s poll
+            sleep_interval = 5 if idle_count < 6 else 30
+            await asyncio.sleep(sleep_interval)
 
     return EventSourceResponse(event_generator())
 
@@ -178,6 +225,9 @@ async def get_task_status():
 @app.delete("/api/training/history/{round_name}")
 async def delete_training_round(round_name: str):
     """Delete a training round (directory and all its files)"""
+    # Validate round_name to prevent path traversal
+    if ".." in round_name or round_name.startswith("/") or round_name.startswith("\\"):
+        raise HTTPException(status_code=400, detail="Invalid round name")
     import shutil
 
     round_dir = ECGFOUNDER_OUTPUTS / round_name
@@ -193,29 +243,23 @@ async def delete_training_round(round_name: str):
 
 @app.get("/api/training/history")
 async def get_training_history():
-    rounds = list_history_rounds()
-    result = []
-    for r in rounds:
-        round_name = r["name"]
-        eval_data = parse_evaluation(round_name)
-        best_f1 = eval_data.get("test_macro_f1", 0) if eval_data else 0
-        test_acc = eval_data.get("test_accuracy", 0) if eval_data else 0
-        result.append({
-            "round": round_name,
-            "number": r["number"],
-            "best_f1": best_f1,
-            "test_accuracy": test_acc,
-            "path": r["path"],
-        })
-    return result
+    """返回所有历史训练记录，按数据集分组"""
+    all_history = list_all_history_with_dataset()
+    return all_history
 
 
 @app.get("/api/training/history/{round_name}/log")
 async def get_round_log(round_name: str):
+    # 先尝试 MIT-BIH 风格的 train_*.log
     epochs = parse_train_log(round_name)
-    if not epochs:
-        raise HTTPException(status_code=404, detail=f"Log for {round_name} not found")
-    return {"round": round_name, "epochs": epochs}
+    if epochs:
+        return {"round": round_name, "epochs": epochs}
+    # 回退到 CPSC2018 风格的 history_*.csv
+    round_dir = ECGFOUNDER_OUTPUTS / round_name
+    csv_epochs = parse_history_csv_epochs(round_dir)
+    if csv_epochs:
+        return {"round": round_name, "epochs": csv_epochs}
+    raise HTTPException(status_code=404, detail=f"Log for {round_name} not found")
 
 
 @app.get("/api/training/history/{round_name}/eval")
@@ -228,11 +272,17 @@ async def get_round_eval(round_name: str):
 
 @app.get("/api/training/history/{round_name}/param-stats")
 async def get_round_param_stats(round_name: str):
+    # Validate round_name to prevent path traversal
+    if ".." in round_name or round_name.startswith("/") or round_name.startswith("\\"):
+        raise HTTPException(status_code=400, detail="Invalid round name")
     round_dir = ECGFOUNDER_OUTPUTS / round_name
     param_file = round_dir / "param_history.json"
     if not param_file.exists():
         raise HTTPException(status_code=404, detail=f"param_history.json for {round_name} not found")
-    return json.loads(param_file.read_text(encoding="utf-8"))
+    try:
+        return json.loads(param_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read param_stats: {e}")
 
 
 # ── Checkpoints ─────────────────────────────────────────────────────────────
@@ -242,30 +292,42 @@ async def get_round_param_stats(round_name: str):
 async def list_checkpoints():
     checkpoints = []
     for round_item in ECGFOUNDER_OUTPUTS.iterdir():
-        if not (round_item.is_dir() and round_item.name.startswith("round_")):
+        if not round_item.is_dir():
             continue
         round_name = round_item.name
+
+        # Determine dataset name from directory
+        if round_name.startswith("round_"):
+            dataset = "MIT-BIH"
+            try:
+                round_num = int(round_name.split("_")[1])
+            except ValueError:
+                round_num = 0
+        else:
+            # 非 round_ 目录 -> 数据集名为目录名（如 cpsc2018_binary_v2_focal_mixup_tta）
+            dataset = round_name
+            round_num = 0
+
         eval_data = parse_evaluation(round_name)
         best_f1 = eval_data.get("test_macro_f1", 0) if eval_data else 0
-        try:
-            round_num = int(round_name.split("_")[1])
-        except ValueError:
-            round_num = 0
+
         for ckpt_file in round_item.glob("*.pth"):
             checkpoints.append({
                 "round": round_name,
                 "number": round_num,
+                "dataset": dataset,
                 "filename": ckpt_file.name,
                 "size_bytes": ckpt_file.stat().st_size,
                 "best_f1": best_f1,
             })
-    checkpoints.sort(key=lambda x: x["number"])
+    checkpoints.sort(key=lambda x: (x["dataset"], x["number"]))
     return checkpoints
 
 
 @app.get("/api/training/checkpoints/{round_name}/{filename}")
 @app.get("/api/checkpoints/{round_name}/{filename}")
 async def download_checkpoint(round_name: str, filename: str):
+    # round_name may be a dataset dir (e.g. cpsc2018_binary_v2_focal_mixup_tta)
     file_path = ECGFOUNDER_OUTPUTS / round_name / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Checkpoint file not found")

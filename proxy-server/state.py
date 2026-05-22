@@ -7,8 +7,11 @@ import filelock
 from pathlib import Path
 from typing import Optional
 
-# 路径常量 — 注意 "ECG founder" 文件夹中还有 "ECGFounder" 子目录
-ECGFOUNDER_BASE = Path("D:/ECG founder/ECGFounder")
+import os
+
+# 路径常量 — 支持环境变量配置
+# 默认值适配 Windows 用户，可通过 ECGFOUNDER_BASE 环境变量覆盖
+ECGFOUNDER_BASE = Path(os.environ.get("ECGFOUNDER_BASE", "D:/ECG founder/ECGFounder"))
 SHARED_STATE_FILE = ECGFOUNDER_BASE / "shared_state.json"
 PARAM_STATS_FILE = ECGFOUNDER_BASE / "param_stats.json"
 TRAIN_TASK_FILE = ECGFOUNDER_BASE / "train_task.json"

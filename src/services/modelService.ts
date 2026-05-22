@@ -250,7 +250,7 @@ class ModelService {
       lead.reduce((sum, value) => sum + (value - mean) * (value - mean), 0) /
       Math.max(1, lead.length);
     const std = Math.sqrt(variance);
-    const amplitude = Math.max(...lead) - Math.min(...lead);
+    const amplitude = Math.max(...lead, 0) - Math.min(...lead, 0);
 
     const normalScore = Math.max(0.1, 1.1 - std * 2.5 - amplitude * 0.6);
     const afScore = Math.max(0.05, std * 1.8 + Math.abs(mean) * 0.5);
@@ -267,6 +267,7 @@ class ModelService {
 
   private generateHeatmap(signalData: number[][]): number[] {
     const lead = signalData[0] || [];
+    if (lead.length === 0) return [];
     const max = Math.max(...lead.map((value) => Math.abs(value)), 1);
     return lead.map((value) => Math.abs(value) / max);
   }
