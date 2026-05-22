@@ -2,13 +2,13 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 module.exports = {
+  mode: 'development',
   entry: './src/index.tsx',
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'bundle.[contenthash].js',
     chunkFilename: '[name].[contenthash].js',
     clean: false,
-    publicPath: './',
   },
   resolve: {
     extensions: ['.tsx', '.ts', '.js', '.jsx'],
@@ -38,7 +38,7 @@ module.exports = {
         type: 'asset/resource',
       },
       {
-        test: /\.(woff|woff2|eot|ttf|otf)$/i,
+        test: /\.(woff|woff2|eot|ttf)$/i,
         type: 'asset/resource',
       },
     ],
@@ -46,9 +46,15 @@ module.exports = {
   plugins: [
     new HtmlWebpackPlugin({
       template: './templates/app.html',
-      inject: true,
     }),
   ],
+  devServer: {
+    port: 3000,
+    hot: true,
+    static: {
+      directory: path.join(__dirname, 'public'),
+    },
+  },
   optimization: {
     runtimeChunk: 'single',
     splitChunks: {
@@ -70,7 +76,5 @@ module.exports = {
   },
   performance: {
     hints: false,
-    maxEntrypointSize: 512000,
-    maxAssetSize: 512000,
   },
 };

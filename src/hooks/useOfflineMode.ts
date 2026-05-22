@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { PendingAction, syncPendingActions } from '../services/offlineQueue';
 
 interface UseOfflineModeReturn {
   isOnline: boolean;
@@ -7,13 +8,6 @@ interface UseOfflineModeReturn {
   syncNow: () => Promise<void>;
   addPendingAction: (action: PendingAction) => void;
   clearPendingActions: () => void;
-}
-
-interface PendingAction {
-  id: string;
-  type: 'create' | 'update' | 'delete';
-  data: any;
-  timestamp: number;
 }
 
 const STORAGE_KEY = 'ecg_platform_pending_actions';
@@ -66,7 +60,14 @@ export function useOfflineMode(): UseOfflineModeReturn {
 
   const addPendingAction = useCallback((action: PendingAction) => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    const actions: PendingAction[] = stored ? JSON.parse(stored) : [];
+    let actions: PendingAction[] = [];
+    if (stored) {
+      try {
+        actions = JSON.parse(stored) as PendingAction[];
+      } catch (error) {
+        console.error('[useOfflineMode] Failed to parse pending actions before append', error);
+      }
+    }
     actions.push(action);
     savePendingActions(actions);
   }, [savePendingActions]);
@@ -85,32 +86,34 @@ export function useOfflineMode(): UseOfflineModeReturn {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return;
 
-    const actions: PendingAction[] = JSON.parse(stored);
+    let actions: PendingAction[] = [];
+    try {
+      actions = JSON.parse(stored) as PendingAction[];
+    } catch (error) {
+      console.error('[useOfflineMode] Failed to parse pending actions before sync', error);
+      return;
+    }
     if (actions.length === 0) return;
 
     console.log('[useOfflineMode] Syncing pending actions:', actions.length);
 
-    for (const action of actions) {
-      try {
-        switch (action.type) {
-          case 'create':
-            break;
-          case 'update':
-            break;
-          case 'delete':
-            break;
-        }
-        console.log('[useOfflineMode] Synced action:', action.id);
-      } catch (err: unknown) {
-        console.error('[useOfflineMode] Failed to sync action:', action.id, err);
-      }
+    const result = await syncPendingActions(actions, {});
+    for (const action of result.synced) {
+      console.log('[useOfflineMode] Synced action:', action.id);
+    }
+    for (const action of result.remaining) {
+      console.error('[useOfflineMode] Failed to sync action:', action.id, action.lastError);
     }
 
     const now = new Date().toISOString();
     localStorage.setItem(SYNC_TIME_KEY, now);
     setLastSyncTime(now);
-    clearPendingActions();
-  }, [isOnline, clearPendingActions]);
+    if (result.remaining.length === 0) {
+      clearPendingActions();
+    } else {
+      savePendingActions(result.remaining);
+    }
+  }, [isOnline, clearPendingActions, savePendingActions]);
 
   return {
     isOnline,

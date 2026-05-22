@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button, Card, Col, Empty, Progress, Row, Space, Spin, Statistic, Tag, Typography } from 'antd';
 import {
   CheckCircleOutlined,
@@ -14,6 +15,7 @@ import { DashboardOverview, getDashboardOverview } from '../services/clinicApi';
 const { Title, Text } = Typography;
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const quickMetrics = overview?.metrics.slice(0, 3) ?? [];
   const recentActivities = overview?.recentActivities ?? [];
@@ -60,9 +62,9 @@ const Dashboard: React.FC = () => {
               <Tag color="default">今日待办已同步</Tag>
             </Space>
             <div className="page-actions">
-              <Button type="primary">进入标注工作台</Button>
-              <Button>查看病例列表</Button>
-              <Button icon={<FireOutlined />}>高优先级任务</Button>
+              <Button type="primary" onClick={() => navigate('/annotation')}>进入标注工作台</Button>
+              <Button onClick={() => navigate('/cases')}>查看病例列表</Button>
+              <Button icon={<FireOutlined />} onClick={() => navigate('/cases')}>高优先级任务</Button>
             </div>
           </Col>
           <Col xs={24} lg={9}>

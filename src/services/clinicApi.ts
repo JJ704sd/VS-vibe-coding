@@ -1,5 +1,6 @@
 ﻿import { mockDiagnosisStats, mockPatients, mockRecentActivities, getPatientSummary } from '../data/mockClinic';
 import { ECGRecord, Patient } from '../types';
+import { isNetworkError, requestJson } from './httpClient';
 
 const API_BASE_URL = 'http://localhost:4000/api';
 const BACKUP_SOURCE_LABEL = 'PTB-XL 20 条备份';
@@ -114,35 +115,12 @@ const buildFallbackBundle = (patientId: string): PatientBundle => {
   };
 };
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const method = (init?.method || 'GET').toUpperCase();
-  const hasBody = typeof init?.body !== 'undefined' && init?.body !== null;
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      ...(hasBody && method !== 'GET' && method !== 'HEAD' ? { 'Content-Type': 'application/json' } : {}),
-      Accept: 'application/json',
-      ...(init?.headers || {}),
-    },
-    ...init,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
-  }
-
-  return response.json() as Promise<T>;
-}
-
-const isNetworkError = (error: unknown): boolean =>
-  error instanceof Error &&
-  (error.name === 'TypeError' ||
-    error.message.includes('fetch') ||
-    error.message.includes('Failed to fetch') ||
-    error.message.includes('NetworkError'));
-
 export async function getDashboardOverview(): Promise<DashboardOverview> {
   try {
-    return await requestJson<DashboardOverview>('/dashboard');
+    return await requestJson<DashboardOverview>({
+      baseUrl: API_BASE_URL,
+      path: '/dashboard',
+    });
   } catch (error) {
     if (isNetworkError(error)) {
       return buildFallbackDashboard();
@@ -153,7 +131,10 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
 
 export async function getPatients(): Promise<PatientsResponse> {
   try {
-    return await requestJson<PatientsResponse>('/patients');
+    return await requestJson<PatientsResponse>({
+      baseUrl: API_BASE_URL,
+      path: '/patients',
+    });
   } catch (error) {
     if (isNetworkError(error)) {
       return {
@@ -167,7 +148,10 @@ export async function getPatients(): Promise<PatientsResponse> {
 
 export async function getPatientBundle(patientId: string): Promise<PatientBundle> {
   try {
-    return await requestJson<PatientBundle>(`/patients/${encodeURIComponent(patientId)}`);
+    return await requestJson<PatientBundle>({
+      baseUrl: API_BASE_URL,
+      path: `/patients/${encodeURIComponent(patientId)}`,
+    });
   } catch (error) {
     if (isNetworkError(error)) {
       return buildFallbackBundle(patientId);
@@ -178,9 +162,11 @@ export async function getPatientBundle(patientId: string): Promise<PatientBundle
 
 export async function createPatient(input: CreatePatientInput): Promise<Patient> {
   try {
-    const response = await requestJson<{ patient: Patient }>('/patients', {
+    const response = await requestJson<{ patient: Patient }>({
+      baseUrl: API_BASE_URL,
+      path: '/patients',
       method: 'POST',
-      body: JSON.stringify(input),
+      body: input,
     });
     return response.patient;
   } catch (error) {

@@ -5,10 +5,14 @@
   "main": "src/index.tsx",
   "scripts": {
     "start": "node scripts/dev.js",
-    "dev:web": "webpack serve --mode development --open",
+    "dev:web": "webpack serve --mode development --config webpack.config.dev.js --open",
     "dev:api": "node mock-api/server.js",
     "build": "webpack --mode production",
-    "test": "jest",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test:unit": "node --test --test-isolation=none --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON src/**/*.test.ts",
+    "test:backend": "node scripts/run-backend-tests.js",
+    "test": "npm run test:unit",
+    "check": "npm run lint && npm run typecheck && npm run test:unit && npm run build",
     "lint": "eslint src --ext .ts,.tsx",
     "format": "prettier --write \"src/**/*.{ts,tsx}\""
   },

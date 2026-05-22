@@ -1,4 +1,6 @@
 import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -6,17 +8,12 @@ from typing import Any
 class MemoryStore:
     def __init__(self, path: Path | str):
         self.path = Path(path)
-        if not self.path.exists():
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self._save({"memories": []})
 
     def add_case_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         data = self._load()
         memories = data.get("memories", [])
         record_id = snapshot.get("recordId", "")
-        import time
         memory_id = f"case_{record_id}_{int(time.time() * 1000)}"
-        from datetime import datetime, timezone
         stored_at = datetime.now(timezone.utc).isoformat()
         entry = {
             "id": memory_id,
@@ -37,6 +34,14 @@ class MemoryStore:
         results = []
 
         for mem in memories:
+            if context:
+                context_patient_id = context.get("patientId")
+                context_record_id = context.get("recordId")
+                if context_patient_id and mem.get("patientId") != context_patient_id:
+                    continue
+                if context_record_id and mem.get("recordId") != context_record_id:
+                    continue
+
             score = 0.0
             text = mem.get("text", "")
             query_lower = query.lower()
@@ -72,10 +77,14 @@ class MemoryStore:
         data = self._load()
         memories = data.get("memories", [])
         original_count = len(memories)
-        if patient_id:
-            memories = [m for m in memories if m.get("patientId") != patient_id]
-        if record_id:
-            memories = [m for m in memories if m.get("recordId") != record_id]
+        def should_remove(memory: dict[str, Any]) -> bool:
+            if patient_id is not None and memory.get("patientId") != patient_id:
+                return False
+            if record_id is not None and memory.get("recordId") != record_id:
+                return False
+            return True
+
+        memories = [memory for memory in memories if not should_remove(memory)]
         removed = original_count - len(memories)
         data["memories"] = memories
         self._save(data)

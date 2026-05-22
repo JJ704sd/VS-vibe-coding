@@ -1,6 +1,6 @@
 import { createSelector } from '@reduxjs/toolkit';
 import { RootState } from './index';
-import { Annotation, ModelPrediction } from '../types';
+import { Annotation } from '../types';
 
 // Base selectors
 const selectECGState = (state: RootState) => state.ecg;

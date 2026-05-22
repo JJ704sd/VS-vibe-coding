@@ -11,12 +11,14 @@ const CLASS_LABELS = ['N', 'S', 'V', 'F', 'Q'];
 
 const TrainingCharts: React.FC<Props> = ({ epochs, evalData }) => {
   if (epochs.length === 0) {
-    return <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>暂无训练曲线数据</div>;
+    return <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>No training curve data</div>;
   }
 
-  // Loss chart
+  const hasValAuc = epochs.some((e) => typeof e.val_auc === 'number' && e.val_auc > 0);
+  const hasThreshold = epochs.some((e) => typeof e.threshold === 'number' && e.threshold > 0);
+
   const lossOption = {
-    title: { text: 'Loss 曲线', left: 'center', textStyle: { fontSize: 14 } },
+    title: { text: 'Loss Curve', left: 'center', textStyle: { fontSize: 14 } },
     tooltip: { trigger: 'axis' },
     xAxis: { type: 'category', data: epochs.map((e) => e.epoch), name: 'Epoch' },
     yAxis: { type: 'value', name: 'Loss' },
@@ -33,35 +35,65 @@ const TrainingCharts: React.FC<Props> = ({ epochs, evalData }) => {
     grid: { left: 50, right: 20, bottom: 40, top: 50 },
   };
 
-  // Accuracy/F1 chart
+  const metricSeries = [
+    {
+      name: 'Train Acc',
+      type: 'line',
+      data: epochs.map((e) => e.train_acc),
+      smooth: true,
+      lineStyle: { width: 2 },
+      itemStyle: { color: '#2563eb' },
+    },
+    {
+      name: 'Val Macro F1',
+      type: 'line',
+      data: epochs.map((e) => e.val_macro_f1),
+      smooth: true,
+      lineStyle: { width: 2 },
+      itemStyle: { color: '#0f9d9a' },
+    },
+    ...(hasValAuc
+      ? [
+          {
+            name: 'Val AUC',
+            type: 'line',
+            data: epochs.map((e) => e.val_auc ?? 0),
+            smooth: true,
+            lineStyle: { width: 2 },
+            itemStyle: { color: '#7c3aed' },
+          },
+        ]
+      : []),
+  ];
+
   const accF1Option = {
-    title: { text: 'Accuracy / F1 曲线', left: 'center', textStyle: { fontSize: 14 } },
+    title: { text: 'Accuracy / F1 / AUC Curve', left: 'center', textStyle: { fontSize: 14 } },
     tooltip: { trigger: 'axis' },
-    legend: { data: ['Train Acc', 'Val Macro F1'], top: 28 },
+    legend: { data: metricSeries.map((item) => item.name), top: 28 },
     xAxis: { type: 'category', data: epochs.map((e) => e.epoch), name: 'Epoch' },
     yAxis: { type: 'value', name: 'Value' },
-    series: [
-      {
-        name: 'Train Acc',
-        type: 'line',
-        data: epochs.map((e) => e.train_acc),
-        smooth: true,
-        lineStyle: { width: 2 },
-        itemStyle: { color: '#2563eb' },
-      },
-      {
-        name: 'Val Macro F1',
-        type: 'line',
-        data: epochs.map((e) => e.val_macro_f1),
-        smooth: true,
-        lineStyle: { width: 2 },
-        itemStyle: { color: '#0f9d9a' },
-      },
-    ],
+    series: metricSeries,
     grid: { left: 50, right: 20, bottom: 40, top: 60 },
   };
 
-  // Per-class F1 bar chart
+  const thresholdOption = {
+    title: { text: 'Threshold Curve', left: 'center', textStyle: { fontSize: 14 } },
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: epochs.map((e) => e.epoch), name: 'Epoch' },
+    yAxis: { type: 'value', name: 'Threshold', min: 0, max: 1 },
+    series: [
+      {
+        name: 'Threshold',
+        type: 'line',
+        data: epochs.map((e) => e.threshold ?? 0),
+        smooth: true,
+        lineStyle: { width: 2 },
+        itemStyle: { color: '#f59e0b' },
+      },
+    ],
+    grid: { left: 50, right: 20, bottom: 40, top: 50 },
+  };
+
   const perClassF1Option = {
     title: { text: 'Per-Class F1', left: 'center', textStyle: { fontSize: 14 } },
     tooltip: { trigger: 'axis' },
@@ -82,7 +114,6 @@ const TrainingCharts: React.FC<Props> = ({ epochs, evalData }) => {
     grid: { left: 50, right: 20, bottom: 40, top: 50 },
   };
 
-  // Confusion matrix heatmap
   const confusionData: [number, number, number][] = [];
   if (evalData && evalData.confusion_matrix) {
     evalData.confusion_matrix.forEach((row, i) => {
@@ -114,6 +145,7 @@ const TrainingCharts: React.FC<Props> = ({ epochs, evalData }) => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <ReactECharts option={lossOption} style={{ height: 300 }} />
       <ReactECharts option={accF1Option} style={{ height: 300 }} />
+      {hasThreshold && <ReactECharts option={thresholdOption} style={{ height: 260 }} />}
       <ReactECharts option={perClassF1Option} style={{ height: 300 }} />
       {confusionData.length > 0 && <ReactECharts option={confusionMatrixOption} style={{ height: 300 }} />}
     </div>

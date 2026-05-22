@@ -11,7 +11,6 @@ import {
   Row,
   Space,
   Statistic,
-  Switch,
   Table,
   Tabs,
   Tag,
@@ -32,9 +31,29 @@ import type {
 } from '../services/trainingApi';
 import TrainingCharts from './components/TrainingCharts';
 import ParamStatsPanel from './components/ParamStatsPanel';
+import TrainingAgentPanel from './components/TrainingAgentPanel';
+import HistoryTrainingAgentPanel from './components/HistoryTrainingAgentPanel';
 
 const { Title, Text } = Typography;
 const { TabPane } = Tabs;
+
+const formatMetric = (value?: number, digits = 4): string => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return '-';
+  return value.toFixed(digits);
+};
+
+const formatPercent = (value?: number): string => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return '-';
+  return `${(value * 100).toFixed(2)}%`;
+};
+
+const sourceColor = (source?: string): string => {
+  if (source === 'history_csv') return 'cyan';
+  if (source === 'evaluation_json') return 'purple';
+  if (source === 'summary_json') return 'geekblue';
+  if (source === 'result_json') return 'green';
+  return 'default';
+};
 
 // ==================== HistoryTable ====================
 interface HistoryTableProps {
@@ -47,6 +66,12 @@ interface HistoryTableProps {
 const HistoryTable: React.FC<HistoryTableProps> = ({ rounds, loading, onSelectRound, onDeleteRound }) => {
   const columns = [
     {
+      title: 'Dataset',
+      dataIndex: 'dataset',
+      key: 'dataset',
+      render: (text: string) => <Tag color="green">{text}</Tag>,
+    },
+    {
       title: 'Round',
       dataIndex: 'round',
       key: 'round',
@@ -56,13 +81,49 @@ const HistoryTable: React.FC<HistoryTableProps> = ({ rounds, loading, onSelectRo
       title: 'Best F1',
       dataIndex: 'best_f1',
       key: 'best_f1',
-      render: (val?: number) => (val != null ? <Text style={{ color: '#52c41a' }}>{val.toFixed(4)}</Text> : '-'),
+      render: (val?: number) => (val != null && val > 0 ? <Text style={{ color: '#52c41a' }}>{val.toFixed(4)}</Text> : '-'),
+    },
+    {
+      title: 'Best Epoch',
+      dataIndex: 'best_epoch',
+      key: 'best_epoch',
+      render: (val?: number) => (val != null && val > 0 ? val : '-'),
+    },
+    {
+      title: 'AUC',
+      dataIndex: 'best_auc',
+      key: 'best_auc',
+      render: (val?: number) => formatMetric(val),
+    },
+    {
+      title: 'Threshold',
+      dataIndex: 'best_threshold',
+      key: 'best_threshold',
+      render: (val?: number) => formatMetric(val, 3),
+    },
+    {
+      title: 'Epochs',
+      dataIndex: 'epoch_count',
+      key: 'epoch_count',
+      render: (val?: number) => (val != null && val > 0 ? val : '-'),
     },
     {
       title: 'Test Accuracy',
       dataIndex: 'test_accuracy',
       key: 'test_accuracy',
-      render: (val?: number) => (val != null ? `${(val * 100).toFixed(2)}%` : '-'),
+      render: formatPercent,
+    },
+    {
+      title: 'Source',
+      dataIndex: 'source_type',
+      key: 'source_type',
+      render: (source?: string) => <Tag color={sourceColor(source)}>{source || 'unknown'}</Tag>,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status?: string) => <Tag color={status === 'completed' ? 'green' : 'default'}>{status || 'unknown'}</Tag>,
     },
     {
       title: 'Action',
@@ -95,14 +156,12 @@ interface DetailModalProps {
 }
 
 const DetailModal: React.FC<DetailModalProps> = ({ round, visible, onClose }) => {
-  const [loading, setLoading] = useState(false);
   const [epochs, setEpochs] = useState<EpochData[]>([]);
   const [evalData, setEvalData] = useState<EvaluationData | null>(null);
   const [paramHistory, setParamHistory] = useState<ParamHistory | null>(null);
 
   useEffect(() => {
     if (!round) return;
-    setLoading(true);
     Promise.all([
       trainingApi.getHistoryLog(round.round),
       trainingApi.getHistoryEval(round.round),
@@ -113,8 +172,7 @@ const DetailModal: React.FC<DetailModalProps> = ({ round, visible, onClose }) =>
         setEvalData(evalResult);
         setParamHistory(paramStats);
       })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      .catch(console.error);
   }, [round]);
 
   if (!round) return null;
@@ -135,6 +193,10 @@ const DetailModal: React.FC<DetailModalProps> = ({ round, visible, onClose }) =>
               <Descriptions.Item label="Test Macro F1">{evalData.test_macro_f1.toFixed(4)}</Descriptions.Item>
               <Descriptions.Item label="Test Weighted F1">{evalData.test_weighted_f1.toFixed(4)}</Descriptions.Item>
               <Descriptions.Item label="Test Samples">{evalData.test_samples_count}</Descriptions.Item>
+              <Descriptions.Item label="Best Epoch">{evalData.best_epoch ?? '-'}</Descriptions.Item>
+              <Descriptions.Item label="Best AUC">{formatMetric(evalData.best_auc)}</Descriptions.Item>
+              <Descriptions.Item label="Best Threshold">{formatMetric(evalData.best_threshold, 3)}</Descriptions.Item>
+              <Descriptions.Item label="Source">{evalData.source_type ?? '-'}</Descriptions.Item>
               <Descriptions.Item label="Per-Class F1" span={2}>
                 <pre style={{ fontSize: 12 }}>{JSON.stringify(evalData.test_per_class_f1, null, 2)}</pre>
               </Descriptions.Item>
@@ -247,15 +309,19 @@ const LiveTrainingPanel: React.FC<LiveTrainingPanelProps> = ({ onSubmitTask }) =
         <Card className="section-card" style={{ marginTop: 16 }} title="参数统计">
           <ParamStatsPanel paramStats={paramStats} live />
         </Card>
+
+        <div style={{ marginTop: 16 }}>
+          <TrainingAgentPanel />
+        </div>
       </Col>
 
       <Col xs={24} lg={8}>
         <Card className="section-card" title="提交训练任务">
           <Form form={form} layout="vertical" onFinish={handleSubmit}>
-            <Form.Item name="epochs" label="Epochs" initialValue={10}>
+            <Form.Item name="epochs" label="Epochs" initialValue={5}>
               <InputNumber min={1} max={100} style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item name="batch_size" label="Batch Size" initialValue={32}>
+            <Form.Item name="batch_size" label="Batch Size" initialValue={16}>
               <InputNumber min={1} max={256} style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item name="lr_backbone" label="LR Backbone" initialValue={0.0001}>
@@ -264,7 +330,7 @@ const LiveTrainingPanel: React.FC<LiveTrainingPanelProps> = ({ onSubmitTask }) =
             <Button type="primary" htmlType="submit" loading={loading} block>
               开始训练
             </Button>
-            {state?.status === 'training' || state?.status === 'running' && (
+            {(state?.status === 'training' || state?.status === 'running') && (
               <Button danger block style={{ marginTop: 8 }} onClick={handleStop} icon={<StopOutlined />}>
                 停止训练
               </Button>
@@ -291,6 +357,7 @@ const CheckpointPanel: React.FC = () => {
   }, []);
 
   const columns = [
+    { title: 'Dataset', dataIndex: 'dataset', key: 'dataset', render: (t: string) => <Tag color="green">{t}</Tag> },
     { title: 'Round', dataIndex: 'round', key: 'round', render: (t: string) => <Tag>{t}</Tag> },
     {
       title: 'Size (MB)',
@@ -302,7 +369,7 @@ const CheckpointPanel: React.FC = () => {
       title: 'Best F1',
       dataIndex: 'best_f1',
       key: 'best_f1',
-      render: (v?: number) => (v != null ? v.toFixed(4) : '-'),
+      render: (v?: number) => (v != null && v > 0 ? <Text style={{ color: '#52c41a' }}>{v.toFixed(4)}</Text> : '-'),
     },
     {
       title: 'Action',
@@ -377,6 +444,7 @@ const TrainingDashboard: React.FC = () => {
       </div>
       <Tabs defaultActiveKey="history">
         <TabPane tab="历史训练记录" key="history">
+          <HistoryTrainingAgentPanel />
           <HistoryTable rounds={rounds} loading={loading} onSelectRound={handleSelectRound} onDeleteRound={handleDeleteRound} />
         </TabPane>
         <TabPane tab="实时训练" key="live">

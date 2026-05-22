@@ -392,5 +392,4 @@ class FirebaseService {
 }
 
 export const firebaseService = new FirebaseService();
-export { FirebaseConfig };
 export default FirebaseService;
