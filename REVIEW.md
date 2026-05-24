@@ -13,8 +13,8 @@
 
 - 仓库路径：`D:\VS vibe coding files\ecg-annotation-platform`
 - 当前分支：`codex/continue-ecg-hardening`
-- 本地 HEAD：`284edd5 docs: update review after agent enhancements`
-- 远端同步点：`284edd5 docs: update review after agent enhancements`
+- 本地 HEAD：与 `origin/codex/continue-ecg-hardening` 同步，最新提交以 `git log --oneline -1` 为准。
+- 远端同步点：`origin/codex/continue-ecg-hardening`
 - 当前状态：本地分支已与远端 `origin/codex/continue-ecg-hardening` 同步，包含中文 Agent 设计、实施计划、第一阶段实现和本 review 更新。
 - 本次检查前未发现已有 `review` / `REVIEW` 文档；因此新增本文件。
 - 首轮检查时没有已修改的 tracked 文件。
