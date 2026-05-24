@@ -1,18 +1,21 @@
 # ECG Annotation Platform Review
 
 日期：2026-05-24
+最后更新：2026-05-24
 
 ## 结论
 
 当前项目处于“可本地运行、可构建、可验证”的 demo / 工作流验证阶段。前端 lint、TypeScript 类型检查、前端单测、后端 pytest 和生产构建均已通过；核心功能面覆盖了病例浏览、心电标注、模型推理演示、训练状态看板和本地助手。
 
-主要风险不在编译正确性，而在交付可重复性、运行环境耦合、mock / 轻量解析边界、CI 配置和生产化安全边界。
+最新整理已补齐项目计划/设计文档、`package-lock.json` 和中文 Agent 增强设计。主要风险不在编译正确性，而在交付可重复性、运行环境耦合、mock / 轻量解析边界、CI 配置和生产化安全边界。
 
 ## 仓库状态
 
 - 仓库路径：`D:\VS vibe coding files\ecg-annotation-platform`
 - 当前分支：`codex/continue-ecg-hardening`
-- HEAD：`22cdf3b feat: harden training dashboard and assistant`
+- 本地 HEAD：`e123f90 docs: design agent enhancement tracks`
+- 远端同步点：`306aa7c docs: add planning records and lockfile`
+- 当前状态：本地分支领先远端 1 个提交，尚未推送的是中文 Agent 增强设计规格。
 - 本次检查前未发现已有 `review` / `REVIEW` 文档；因此新增本文件。
 - 首轮检查时没有已修改的 tracked 文件。
 - 本轮整理将项目演进文档和 npm lockfile 纳入版本控制：
@@ -24,6 +27,15 @@
   - `docs/superpowers/plans/2026-05-11-training-dashboard-dataset-grouping.md`
   - `docs/superpowers/plans/2026-05-11-training-output-sync.md`
   - `docs/superpowers/specs/2026-04-28-ecgfounder-training-visualization-design.md`
+
+## 最新整理
+
+- 已新增中文设计规格：`docs/superpowers/specs/2026-05-24-case-and-training-agent-enhancements-design.md`。
+- 设计方向分为两条独立增强线：
+  - 病例标注 Agent：病例风险概览、标注完整性、AI 结果可信度、信号质量提示。
+  - 训练决策 Agent：当前训练状态决策、历史 round/checkpoint 推荐、异常训练记录识别、下一轮训练建议。
+- 设计约束明确为只读辅助：不自动修改标注、不启动/停止训练、不删除历史、不操作 checkpoint。
+- 设计文档已改为中文，便于项目交接和后续实现。
 
 ## 验证结果
 
@@ -52,6 +64,7 @@
 - 前端页面边界比较清晰，主要页面、服务、store、utils 分层明确。
 - 关键服务已有单测：HTTP client、offline queue、assistant API、training API。
 - 后端 parser、assistant memory/RAG、training diagnostics 有 pytest 覆盖。
+- 已有中文 Agent 增强设计，明确了病例标注 Agent 和训练决策 Agent 的后端规则、前端展示、安全边界和测试范围。
 - 本地 mock 和 fallback 数据让主要 UI 在缺少后端时仍可演示。
 - Webpack 已做 route lazy loading、vendor/TensorFlow 分包和 Windows 保守清理。
 
@@ -70,7 +83,7 @@
    FastAPI CORS 为 `allow_origins=["*"]`，并暴露训练任务、历史删除、checkpoint 下载等本地文件相关操作。若服务绑定到非本机或被浏览器页面跨域访问，需要增加 origin 限制、鉴权、路径校验和操作确认。
 
 5. 测试覆盖偏服务层，缺少关键 UI / 工作流验证。
-   当前前端单测集中在服务函数，尚未覆盖 Annotation Studio canvas 交互、病例列表/详情 CRUD、训练 SSE 连接、助手面板交互和导入/导出端到端流程。
+   当前前端单测集中在服务函数，尚未覆盖 Annotation Studio canvas 交互、病例列表/详情 CRUD、训练 SSE 连接、助手面板交互和导入/导出端到端流程。后续 Agent 增强也需要补病例风险分析、训练决策字段和面板渲染测试。
 
 6. bundle 大小需要建立预算。
    生产构建通过，但主入口约 `2.95 MiB`，且 performance hints 关闭。TensorFlow.js、Ant Design 和图表库容易继续推高首屏成本，建议引入 bundle analyzer 和明确体积预算。
@@ -80,9 +93,10 @@
 
 ## 建议下一步
 
-1. 先处理仓库交付面：更新 GitHub Pages workflow 的触发分支，并让 CI 至少运行 `lint`、`typecheck`、`test:unit`、`test:backend`、`build`。
-2. 抽出运行配置：统一 API base URL、mock API 端口、sidecar 端口和 `ECGFOUNDER_BASE`，通过 `.env` 或运行时 config 注入。
-3. 给核心 UI 增加 smoke / e2e 测试：至少覆盖 dashboard 加载、病例进入标注页、导入样例、添加标注、导出、训练看板只读加载。
-4. 加固 sidecar：限制 CORS、补充 checkpoint 下载路径校验、对删除类接口加保护，并确认服务只绑定本地或有明确鉴权。
-5. 建立 bundle 预算：分析 webpack 输出，确认 TensorFlow、Ant Design、ECharts 是否只在需要页面加载。
-6. 明确 demo 与生产边界：在 UI 和文档里区分 mock inference、轻量 parser、真实模型/真实数据路径。
+1. 按中文 Agent 增强设计拆实施计划：先做病例风险分析接口和训练决策字段扩展，再做前端面板展示。
+2. 先处理仓库交付面：更新 GitHub Pages workflow 的触发分支，并让 CI 至少运行 `lint`、`typecheck`、`test:unit`、`test:backend`、`build`。
+3. 抽出运行配置：统一 API base URL、mock API 端口、sidecar 端口和 `ECGFOUNDER_BASE`，通过 `.env` 或运行时 config 注入。
+4. 给核心 UI 增加 smoke / e2e 测试：至少覆盖 dashboard 加载、病例进入标注页、导入样例、添加标注、导出、训练看板只读加载。
+5. 加固 sidecar：限制 CORS、补充 checkpoint 下载路径校验、对删除类接口加保护，并确认服务只绑定本地或有明确鉴权。
+6. 建立 bundle 预算：分析 webpack 输出，确认 TensorFlow、Ant Design、ECharts 是否只在需要页面加载。
+7. 明确 demo 与生产边界：在 UI 和文档里区分 mock inference、轻量 parser、真实模型/真实数据路径。
