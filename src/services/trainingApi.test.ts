@@ -85,3 +85,12 @@ test('getTrainingHistoryDiagnosis falls back to current history data when diagno
     'http://localhost:6090/api/training/history',
   ]);
 });
+
+test('buildTrainingHistoryDiagnosis includes checkpoint direction fallback', () => {
+  const result = buildTrainingHistoryDiagnosis([
+    { round: 'round_1', number: 1, dataset: 'MIT-BIH', best_f1: 0.7, test_accuracy: 0.72, path: 'r1' },
+  ]);
+
+  assert.equal(result.recommendedCheckpointDirection?.round, 'round_1');
+  assert.equal(result.recommendedCheckpointDirection?.action, 'keep_best_round');
+});

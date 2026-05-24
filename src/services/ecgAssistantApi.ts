@@ -35,6 +35,31 @@ export interface AssistantSource {
   snippet: string;
 }
 
+export interface AssistantRecommendation {
+  priority: 'low' | 'medium' | 'high' | string;
+  text: string;
+}
+
+export interface AssistantWarning {
+  code: string;
+  message: string;
+}
+
+export interface AssistantMetric {
+  label: string;
+  value: string;
+}
+
+export interface AssistantCaseAnalysis {
+  status: 'ready' | 'attention' | 'insufficient' | string;
+  severity: 'info' | 'warning' | 'critical';
+  summary: string;
+  metrics: AssistantMetric[];
+  warnings: AssistantWarning[];
+  recommendations: AssistantRecommendation[];
+  sources: AssistantSource[];
+}
+
 export interface AssistantAnswer {
   mode: 'memory' | 'knowledge' | 'case';
   answer: string;
@@ -76,6 +101,16 @@ export async function recordAssistantCaseSnapshot(
     body: JSON.stringify(snapshot),
   });
   if (!res.ok) throw new Error('病例上下文记录失败');
+  return res.json();
+}
+
+export async function analyzeAssistantCase(snapshot: AssistantCaseSnapshot): Promise<AssistantCaseAnalysis> {
+  const res = await fetch(`${API_BASE}/api/assistant/case/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ context: snapshot }),
+  });
+  if (!res.ok) throw new Error('病例风险分析失败');
   return res.json();
 }
 

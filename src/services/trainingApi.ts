@@ -127,6 +127,23 @@ export interface ParamHistory {
   }>;
 }
 
+export interface TrainingDecision {
+  nextAction: 'inspect' | 'continue' | 'stop_and_review' | 'rerun_best' | 'adjust_config' | string;
+  confidence: 'low' | 'medium' | 'high' | string;
+  reason: string;
+}
+
+export interface TrainingWarning {
+  code: string;
+  message: string;
+}
+
+export interface RecommendedCheckpointDirection {
+  action: 'keep_best_round' | 'generate_evaluation' | 'rerun_best' | 'adjust_config' | string;
+  round?: string | null;
+  reason: string;
+}
+
 export interface TrainingDiagnosis {
   status: string;
   severity: 'info' | 'warning' | 'critical';
@@ -137,6 +154,8 @@ export interface TrainingDiagnosis {
     value: string;
   }>;
   recommendedRound?: HistoryRound | null;
+  decision?: TrainingDecision;
+  warnings?: TrainingWarning[];
 }
 
 export interface TrainingHistoryDiagnosis {
@@ -153,6 +172,7 @@ export interface TrainingHistoryDiagnosis {
     reason: string;
   }>;
   recommendations: string[];
+  recommendedCheckpointDirection?: RecommendedCheckpointDirection;
   rankedRounds: HistoryRound[];
 }
 
@@ -206,6 +226,13 @@ export function buildTrainingHistoryDiagnosis(rounds: HistoryRound[]): TrainingH
     },
     anomalies,
     recommendations,
+    recommendedCheckpointDirection: {
+      action: bestRound ? 'keep_best_round' : 'generate_evaluation',
+      round: bestRound?.round ?? null,
+      reason: bestRound
+        ? `${bestRound.round} 当前 best F1 最高，优先保留该 checkpoint。`
+        : '暂无有效历史轮次，需要先生成评估结果。',
+    },
     rankedRounds: rankedRounds.slice(0, 5),
   };
 }
