@@ -60,6 +60,22 @@ const TrainingAgentPanel: React.FC = () => {
               {diagnosis.recommendedRound && <Tag color="blue">推荐轮次 {diagnosis.recommendedRound.round}</Tag>}
             </Space>
             <Text>{diagnosis.summary}</Text>
+            {diagnosis.decision && (
+              <Alert
+                type={diagnosis.severity === 'critical' ? 'error' : diagnosis.severity === 'warning' ? 'warning' : 'info'}
+                showIcon
+                message={`决策摘要：${diagnosis.decision.nextAction} / ${diagnosis.decision.confidence}`}
+                description={diagnosis.decision.reason}
+              />
+            )}
+            {diagnosis.warnings && diagnosis.warnings.length > 0 && (
+              <List
+                size="small"
+                header={<Text strong>风险提示</Text>}
+                dataSource={diagnosis.warnings}
+                renderItem={(item) => <List.Item>{item.message}</List.Item>}
+              />
+            )}
             <List
               size="small"
               header={<Text strong>建议动作</Text>}

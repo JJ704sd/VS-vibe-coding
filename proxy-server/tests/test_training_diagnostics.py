@@ -70,3 +70,36 @@ def test_history_diagnosis_flags_zero_f1_and_accuracy_f1_gap():
     assert len(result["anomalies"]) == 2
     assert any(item["round"] == "round_1" and "缺少有效 F1" in item["reason"] for item in result["anomalies"])
     assert any(item["round"] == "round_2" and "类别不平衡" in item["reason"] for item in result["anomalies"])
+
+
+def test_training_diagnosis_includes_decision_for_error_state():
+    result = diagnose_training(
+        state={"status": "error", "error": "OOM"},
+        param_stats=None,
+        history_rounds=[],
+    )
+
+    assert result["severity"] == "critical"
+    assert result["decision"]["nextAction"] == "stop_and_review"
+    assert result["warnings"][0]["code"] == "training_error"
+
+
+def test_training_diagnosis_warns_when_running_without_param_stats():
+    result = diagnose_training(
+        state={"status": "running", "current_epoch": 3, "total_epochs": 5},
+        param_stats=None,
+        history_rounds=[],
+    )
+
+    assert result["decision"]["nextAction"] in {"continue", "inspect"}
+    assert any(item["code"] == "missing_param_stats" for item in result["warnings"])
+
+
+def test_history_diagnosis_returns_checkpoint_direction():
+    result = diagnose_training_history([
+        {"round": "round_1", "dataset": "MIT-BIH", "best_f1": 0.62, "test_accuracy": 0.7, "source_type": "evaluation_json"},
+        {"round": "round_2", "dataset": "MIT-BIH", "best_f1": 0.82, "test_accuracy": 0.84, "source_type": "evaluation_json"},
+    ])
+
+    assert result["recommendedCheckpointDirection"]["round"] == "round_2"
+    assert result["recommendedCheckpointDirection"]["action"] == "keep_best_round"

@@ -27,15 +27,38 @@ def diagnose_training(
     status = str(state.get("status") or "idle")
     recommendations: list[str] = []
     evidence: list[dict[str, str]] = []
+    warnings: list[dict[str, str]] = []
     severity = "info"
     summary = "当前训练状态正常。"
     best = _best_round(history_rounds)
+    decision = {
+        "nextAction": "inspect",
+        "confidence": "medium",
+        "reason": "当前没有训练任务在运行，建议先查看历史最佳轮次或提交小规模基线训练。",
+    }
 
     if best:
         evidence.append({
             "label": "历史最佳轮次",
             "value": f"{best.get('round')} / F1 {_fmt_metric(best.get('best_f1'))}",
         })
+
+    if status == "error":
+        error_message = str(state.get("error") or "训练失败。")
+        return {
+            "status": status,
+            "severity": "critical",
+            "summary": "训练任务处于错误状态，需要先检查错误信息。",
+            "recommendations": ["先检查训练日志和错误信息，再决定是否重跑。"],
+            "evidence": evidence + [{"label": "Error", "value": error_message}],
+            "recommendedRound": best,
+            "decision": {
+                "nextAction": "stop_and_review",
+                "confidence": "high",
+                "reason": "训练状态为 error，继续提交新任务前应先定位失败原因。",
+            },
+            "warnings": [{"code": "training_error", "message": error_message}],
+        }
 
     if status not in {"training", "running"}:
         summary = "当前没有训练任务在运行。"
@@ -52,6 +75,8 @@ def diagnose_training(
             "recommendations": recommendations,
             "evidence": evidence,
             "recommendedRound": best,
+            "decision": decision,
+            "warnings": warnings,
         }
 
     current_epoch = state.get("current_epoch")
@@ -73,6 +98,7 @@ def diagnose_training(
     if isinstance(train_acc, (int, float)) and isinstance(val_macro_f1, (int, float)):
         if train_acc >= 0.9 and val_macro_f1 <= 0.55:
             issues.append("可能过拟合")
+            warnings.append({"code": "overfit_risk", "message": "训练准确率高但验证 Macro F1 偏低。"})
             recommendations.append("训练准确率高但验证 Macro F1 偏低，建议检查类别不平衡、降低学习率或增强正则化。")
         elif current_epoch and current_epoch <= 2 and val_macro_f1 <= 0.45:
             recommendations.append("训练仍处于早期，建议继续观察 2-3 个 epoch 后再判断趋势。")
@@ -85,12 +111,16 @@ def diagnose_training(
         evidence.append({"label": "Global Norm", "value": _fmt_metric(global_norm)})
         if isinstance(global_norm, (int, float)) and global_norm >= 100:
             issues.append("梯度可能不稳定")
+            warnings.append({"code": "high_global_norm", "message": "Global Norm 偏大，梯度可能不稳定。"})
             recommendations.append("Global Norm 偏大，建议降低学习率或启用梯度裁剪。")
 
         trainable = param_stats.get("trainable_params")
         frozen = param_stats.get("frozen_params")
         if isinstance(trainable, int) and isinstance(frozen, int):
             evidence.append({"label": "可训练 / 冻结参数", "value": f"{trainable:,} / {frozen:,}"})
+    else:
+        warnings.append({"code": "missing_param_stats", "message": "训练运行中但缺少参数统计。"})
+        recommendations.append("建议检查 param_observer 是否运行，确认参数统计文件是否正常更新。")
 
     if not recommendations:
         recommendations.append("继续观察当前训练曲线，重点关注 Val Macro F1 与 Train Loss 是否同步改善。")
@@ -98,8 +128,18 @@ def diagnose_training(
     if issues:
         severity = "warning"
         summary = "当前训练存在风险：" + "、".join(dict.fromkeys(issues)) + "。"
+        decision = {
+            "nextAction": "adjust_config",
+            "confidence": "medium",
+            "reason": "训练指标或参数统计出现风险信号，建议先调整配置或复核数据分布。",
+        }
     else:
         summary = "当前训练正在运行，暂未发现明显异常。"
+        decision = {
+            "nextAction": "continue",
+            "confidence": "medium",
+            "reason": "当前训练仍在运行，尚未发现必须中断的异常，可继续观察关键指标。",
+        }
 
     return {
         "status": status,
@@ -108,6 +148,8 @@ def diagnose_training(
         "recommendations": recommendations,
         "evidence": evidence,
         "recommendedRound": best,
+        "decision": decision,
+        "warnings": warnings,
     }
 
 
@@ -171,5 +213,14 @@ def diagnose_training_history(history_rounds: list[dict[str, Any]]) -> dict[str,
         },
         "anomalies": anomalies,
         "recommendations": recommendations,
+        "recommendedCheckpointDirection": {
+            "action": "keep_best_round" if best else "generate_evaluation",
+            "round": best.get("round") if best else None,
+            "reason": (
+                f"{best.get('round')} 当前 best F1 最高，优先保留该 checkpoint。"
+                if best
+                else "暂无有效历史轮次，需要先生成评估结果。"
+            ),
+        },
         "rankedRounds": ranked[:5],
     }

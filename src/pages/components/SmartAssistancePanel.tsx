@@ -3,9 +3,11 @@ import { Alert, Button, Card, Divider, Input, List, Space, Tag, Typography, mess
 import { ECGLead } from '../../types';
 import {
   AssistantAnswer,
+  AssistantCaseAnalysis,
   AssistantCaseSnapshot,
   AssistantHealth,
   AssistantSource,
+  analyzeAssistantCase,
   askECGAssistant,
   checkAssistantHealth,
   rebuildAssistantKnowledge,
@@ -28,10 +30,11 @@ interface SmartAssistancePanelProps {
 }
 
 const QUICK_QUESTIONS = [
-  '解释当前标注',
-  '这个病例的 AI 结果怎么看？',
+  '检查当前病例风险',
+  '解释当前标注完整性',
+  'AI 结果是否可靠？',
   '如何导入 WFDB 文件？',
-  '当前信号质量是否可靠？',
+  '信号质量需要复核吗？',
 ];
 
 const getSourceLabel = (source: AssistantSource): string => {
@@ -44,6 +47,12 @@ const getModeLabel = (mode: AssistantAnswer['mode']): string => {
   if (mode === 'case') return '病例解释';
   if (mode === 'memory') return '病例记忆';
   return '知识检索';
+};
+
+const getCaseSeverityColor = (severity: AssistantCaseAnalysis['severity']): string => {
+  if (severity === 'critical') return 'red';
+  if (severity === 'warning') return 'orange';
+  return 'green';
 };
 
 const SmartAssistancePanel: React.FC<SmartAssistancePanelProps> = ({
@@ -60,6 +69,7 @@ const SmartAssistancePanel: React.FC<SmartAssistancePanelProps> = ({
 }) => {
   const [assistantQuestion, setAssistantQuestion] = useState('');
   const [assistantAnswer, setAssistantAnswer] = useState<AssistantAnswer | null>(null);
+  const [caseAnalysis, setCaseAnalysis] = useState<AssistantCaseAnalysis | null>(null);
   const [assistantHealth, setAssistantHealth] = useState<AssistantHealth>({
     available: false,
     message: '正在检查助手服务',
@@ -102,6 +112,18 @@ const SmartAssistancePanel: React.FC<SmartAssistancePanelProps> = ({
       message.success(`知识库已重建：${result.indexedDocuments} 个文档，${result.chunks} 个片段。`);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '重建知识库失败');
+    } finally {
+      setAssistantLoading(false);
+    }
+  };
+
+  const handleAnalyzeCase = async (): Promise<void> => {
+    setAssistantLoading(true);
+    try {
+      const result = await analyzeAssistantCase(caseSnapshot);
+      setCaseAnalysis(result);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '病例风险分析失败');
     } finally {
       setAssistantLoading(false);
     }
@@ -201,6 +223,9 @@ const SmartAssistancePanel: React.FC<SmartAssistancePanelProps> = ({
           <Button disabled={!assistantAvailable} loading={assistantLoading} onClick={handleRecordCase} block>
             记录当前病例
           </Button>
+          <Button disabled={!assistantAvailable} loading={assistantLoading} onClick={() => void handleAnalyzeCase()} block>
+            生成病例风险概览
+          </Button>
           <Button disabled={!assistantAvailable} loading={assistantLoading} onClick={handleRebuildKnowledge} block>
             重建知识库
           </Button>
@@ -215,6 +240,61 @@ const SmartAssistancePanel: React.FC<SmartAssistancePanelProps> = ({
             loading={assistantLoading}
             disabled={!assistantAvailable}
           />
+          {caseAnalysis && (
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Space wrap>
+                <Tag color={getCaseSeverityColor(caseAnalysis.severity)}>{caseAnalysis.status}</Tag>
+                <Tag>{caseAnalysis.severity}</Tag>
+              </Space>
+              <Text>{caseAnalysis.summary}</Text>
+              <List
+                size="small"
+                dataSource={caseAnalysis.metrics}
+                renderItem={(item) => (
+                  <List.Item>
+                    <Text type="secondary">{item.label}</Text>
+                    <Text>{item.value}</Text>
+                  </List.Item>
+                )}
+              />
+              <List
+                size="small"
+                header={<Text strong>风险提示</Text>}
+                dataSource={caseAnalysis.warnings}
+                locale={{ emptyText: '暂无风险提示' }}
+                renderItem={(item) => <List.Item>{item.message}</List.Item>}
+              />
+              <List
+                size="small"
+                header={<Text strong>建议动作</Text>}
+                dataSource={caseAnalysis.recommendations}
+                locale={{ emptyText: '暂无建议动作' }}
+                renderItem={(item) => (
+                  <List.Item>
+                    <Tag>{item.priority}</Tag>
+                    <Text>{item.text}</Text>
+                  </List.Item>
+                )}
+              />
+              <List
+                size="small"
+                header={<Text strong>依据来源</Text>}
+                dataSource={caseAnalysis.sources}
+                locale={{ emptyText: '暂无依据来源' }}
+                renderItem={(source) => (
+                  <List.Item>
+                    <Space direction="vertical" size={2}>
+                      <Text strong>{source.title}</Text>
+                      <Text type="secondary">
+                        {getSourceLabel(source)} · {source.path}
+                      </Text>
+                      {source.snippet && <Text type="secondary">{source.snippet}</Text>}
+                    </Space>
+                  </List.Item>
+                )}
+              />
+            </Space>
+          )}
           {assistantAnswer && (
             <Space direction="vertical" style={{ width: '100%' }}>
               <Tag color="blue">{getModeLabel(assistantAnswer.mode)}</Tag>

@@ -89,3 +89,24 @@ def test_main_creates_assistant_service_lazily_without_writing_memory_file(tmp_p
 
     assert isinstance(service, AssistantService)
     assert not memory_file.exists()
+
+
+def test_case_analyze_endpoint_returns_structured_risk():
+    import asyncio
+    import main
+
+    result = asyncio.run(main.analyze_assistant_case({
+        "context": {
+            "patientId": "p1",
+            "recordId": "r1",
+            "leadCount": 0,
+            "primaryLead": "II",
+            "annotationCount": 0,
+            "signalQuality": 80,
+            "annotations": [],
+            "aiResults": [],
+        }
+    }))
+
+    assert result["severity"] == "critical"
+    assert any(item["code"] == "no_leads" for item in result["warnings"])
