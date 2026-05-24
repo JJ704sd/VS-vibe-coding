@@ -13,9 +13,9 @@
 
 - 仓库路径：`D:\VS vibe coding files\ecg-annotation-platform`
 - 当前分支：`codex/continue-ecg-hardening`
-- 本地 HEAD：`7411862 feat: show agent decision summaries`
-- 远端同步点：`306aa7c docs: add planning records and lockfile`
-- 当前状态：本地分支领先远端 7 个提交，包含中文 Agent 设计、实施计划和第一阶段实现，尚待推送。
+- 本地 HEAD：与 `origin/codex/continue-ecg-hardening` 同步，最新提交以 `git log --oneline -1` 为准。
+- 远端同步点：`origin/codex/continue-ecg-hardening`
+- 当前状态：本地分支已与远端 `origin/codex/continue-ecg-hardening` 同步，包含中文 Agent 设计、实施计划、第一阶段实现和本 review 更新。
 - 本次检查前未发现已有 `review` / `REVIEW` 文档；因此新增本文件。
 - 首轮检查时没有已修改的 tracked 文件。
 - 本轮整理将项目演进文档和 npm lockfile 纳入版本控制：
