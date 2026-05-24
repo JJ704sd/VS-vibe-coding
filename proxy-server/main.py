@@ -34,6 +34,7 @@ from parsers import (
 
 from assistant.memory_store import MemoryStore
 from assistant.rag_store import RAGStore
+from assistant.case_analysis import analyze_case_snapshot
 from assistant.service import AssistantService
 from assistant.training_diagnostics import diagnose_training, diagnose_training_history
 
@@ -93,6 +94,14 @@ async def ask_assistant(body: dict):
         raise HTTPException(status_code=400, detail="question is required")
     context = body.get("context") or {}
     return get_assistant_service().ask(question, context)
+
+
+@app.post("/api/assistant/case/analyze")
+async def analyze_assistant_case(body: dict):
+    context = body.get("context") or {}
+    if not isinstance(context, dict):
+        raise HTTPException(status_code=400, detail="context must be an object")
+    return analyze_case_snapshot(context)
 
 
 @app.get("/api/assistant/training/diagnose")
