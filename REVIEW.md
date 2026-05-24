@@ -14,8 +14,8 @@
 - 当前分支：`codex/continue-ecg-hardening`
 - HEAD：`22cdf3b feat: harden training dashboard and assistant`
 - 本次检查前未发现已有 `review` / `REVIEW` 文档；因此新增本文件。
-- 检查时没有已修改的 tracked 文件。
-- 检查时存在未跟踪文件：
+- 首轮检查时没有已修改的 tracked 文件。
+- 本轮整理将项目演进文档和 npm lockfile 纳入版本控制：
   - `package-lock.json`
   - `docs/superpowers/plans/2026-04-28-ecgfounder-training-visualization-plan.md`
   - `docs/superpowers/plans/2026-05-11-history-training-agent.md`
@@ -57,8 +57,8 @@
 
 ## 主要风险
 
-1. CI / 部署可重复性需要先修。
-   `.github/workflows/deploy-pages.yml` 只监听 `codex/optimize-bundle-and-lint`，当前工作分支是 `codex/continue-ecg-hardening`。workflow 使用 `npm ci`，但 `package-lock.json` 当前未被 Git 跟踪；干净 checkout 上很可能无法复现本地安装。
+1. CI / 部署触发分支需要先修。
+   `.github/workflows/deploy-pages.yml` 只监听 `codex/optimize-bundle-and-lint`，当前工作分支是 `codex/continue-ecg-hardening`。本轮已补充 `package-lock.json`，但 workflow 触发分支仍需按实际发布分支调整。
 
 2. 运行端点仍然硬编码。
    `src/services/clinicApi.ts` 写死 `http://localhost:4000/api`，`src/services/trainingApi.ts` 和 `src/services/ecgAssistantApi.ts` 写死 `http://localhost:6090`。这适合本地 demo，但不适合 GitHub Pages、局域网部署或多环境配置。
@@ -80,10 +80,9 @@
 
 ## 建议下一步
 
-1. 先处理仓库交付面：决定是否提交 `package-lock.json`，更新 GitHub Pages workflow 的触发分支，并让 CI 至少运行 `lint`、`typecheck`、`test:unit`、`test:backend`、`build`。
+1. 先处理仓库交付面：更新 GitHub Pages workflow 的触发分支，并让 CI 至少运行 `lint`、`typecheck`、`test:unit`、`test:backend`、`build`。
 2. 抽出运行配置：统一 API base URL、mock API 端口、sidecar 端口和 `ECGFOUNDER_BASE`，通过 `.env` 或运行时 config 注入。
 3. 给核心 UI 增加 smoke / e2e 测试：至少覆盖 dashboard 加载、病例进入标注页、导入样例、添加标注、导出、训练看板只读加载。
 4. 加固 sidecar：限制 CORS、补充 checkpoint 下载路径校验、对删除类接口加保护，并确认服务只绑定本地或有明确鉴权。
 5. 建立 bundle 预算：分析 webpack 输出，确认 TensorFlow、Ant Design、ECharts 是否只在需要页面加载。
 6. 明确 demo 与生产边界：在 UI 和文档里区分 mock inference、轻量 parser、真实模型/真实数据路径。
-
