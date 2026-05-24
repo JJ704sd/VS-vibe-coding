@@ -103,6 +103,14 @@ const HistoryTrainingAgentPanel: React.FC = () => {
             {diagnosis.bestRound && <Tag color="blue">最佳轮次 {diagnosis.bestRound.round}</Tag>}
           </Space>
           <Text>{diagnosis.summary}</Text>
+          {diagnosis.recommendedCheckpointDirection && (
+            <Alert
+              type={diagnosis.severity === 'warning' ? 'warning' : 'info'}
+              showIcon
+              message={`推荐方向：${diagnosis.recommendedCheckpointDirection.action}`}
+              description={diagnosis.recommendedCheckpointDirection.reason}
+            />
+          )}
           <Row gutter={[16, 16]}>
             <Col xs={12} md={6}>
               <Statistic title="最佳 F1" value={diagnosis.bestRound?.best_f1 ?? 0} precision={4} />
