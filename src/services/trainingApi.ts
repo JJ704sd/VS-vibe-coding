@@ -104,6 +104,8 @@ export interface EvaluationData {
   best_auc?: number;
   best_threshold?: number;
   source_type?: string;
+  metric_scope?: 'test' | 'validation' | string;
+  metric_source_note?: string;
 }
 
 export interface CheckpointInfo {

@@ -20,6 +20,8 @@ npm run start
 
 Open `http://localhost:3000/` in your browser.
 
+ECGFounder 答辩/演示启动说明（Sidecar、runner、observer 和预检命令）见 [docs/demo-startup.md](docs/demo-startup.md)。
+
 ## Build
 
 ```bash
