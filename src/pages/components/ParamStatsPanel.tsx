@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Card, Descriptions, Select, Typography } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import type { ParamStats, ParamHistory } from '../../services/trainingApi';
+import { buildLiveLayerStatRows } from './paramStatsViewModel';
 
 interface Props {
   paramStats?: ParamStats | null;
@@ -38,13 +39,11 @@ const ParamStatsPanel: React.FC<Props> = ({ paramStats, paramHistory, live }) =>
           />
           {effectiveLayer && (
             <Descriptions column={2} size="small" style={{ marginTop: 12 }}>
-              <Descriptions.Item label="Mean">{effectiveLayer.mean.toFixed(6)}</Descriptions.Item>
-              <Descriptions.Item label="Std">{effectiveLayer.std.toFixed(6)}</Descriptions.Item>
-              <Descriptions.Item label="Min">{effectiveLayer.min.toFixed(6)}</Descriptions.Item>
-              <Descriptions.Item label="Max">{effectiveLayer.max.toFixed(6)}</Descriptions.Item>
-              {effectiveLayer.grad_mean != null && (
-                <Descriptions.Item label="Grad Mean">{effectiveLayer.grad_mean.toFixed(6)}</Descriptions.Item>
-              )}
+              {buildLiveLayerStatRows(effectiveLayer).map((row) => (
+                <Descriptions.Item key={row.label} label={row.label}>
+                  {row.value}
+                </Descriptions.Item>
+              ))}
             </Descriptions>
           )}
         </div>

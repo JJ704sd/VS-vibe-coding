@@ -69,6 +69,8 @@ def test_cpsc_history_summary_and_eval_are_parsed(monkeypatch, tmp_path):
     assert eval_data["test_accuracy"] == 0.8103
     assert eval_data["best_epoch"] == 20
     assert eval_data["source_type"] == "summary_json"
+    assert eval_data["metric_scope"] == "validation"
+    assert "validation" in eval_data["metric_source_note"]
 
 
 def test_mitbih_evaluation_and_train_round_log_are_parsed(monkeypatch, tmp_path):
@@ -118,6 +120,8 @@ def test_mitbih_evaluation_and_train_round_log_are_parsed(monkeypatch, tmp_path)
     assert history[0]["best_f1"] == 0.891226
     assert history[0]["test_accuracy"] == 0.8925
     assert history[0]["source_type"] == "evaluation_json"
+    eval_data = parsers.parse_evaluation("round_11")
+    assert eval_data["metric_scope"] == "test"
 
     epochs = parsers.parse_train_log("round_11")
     assert epochs == [

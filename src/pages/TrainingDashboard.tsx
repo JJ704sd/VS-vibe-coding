@@ -33,6 +33,7 @@ import TrainingCharts from './components/TrainingCharts';
 import ParamStatsPanel from './components/ParamStatsPanel';
 import TrainingAgentPanel from './components/TrainingAgentPanel';
 import HistoryTrainingAgentPanel from './components/HistoryTrainingAgentPanel';
+import { loadTrainingRoundDetails } from './components/trainingRoundDetails';
 
 const { Title, Text } = Typography;
 const { TabPane } = Tabs;
@@ -53,6 +54,12 @@ const sourceColor = (source?: string): string => {
   if (source === 'summary_json') return 'geekblue';
   if (source === 'result_json') return 'green';
   return 'default';
+};
+
+const metricScopeLabel = (scope?: string): string => {
+  if (scope === 'test') return 'Test';
+  if (scope === 'validation') return 'Validation-derived';
+  return scope || '-';
 };
 
 // ==================== HistoryTable ====================
@@ -162,15 +169,11 @@ const DetailModal: React.FC<DetailModalProps> = ({ round, visible, onClose }) =>
 
   useEffect(() => {
     if (!round) return;
-    Promise.all([
-      trainingApi.getHistoryLog(round.round),
-      trainingApi.getHistoryEval(round.round),
-      trainingApi.getHistoryParamStats(round.round),
-    ])
-      .then(([logData, evalResult, paramStats]) => {
-        setEpochs(logData.epochs);
-        setEvalData(evalResult);
-        setParamHistory(paramStats);
+    loadTrainingRoundDetails(round.round, trainingApi)
+      .then((details) => {
+        setEpochs(details.epochs);
+        setEvalData(details.evalData);
+        setParamHistory(details.paramHistory);
       })
       .catch(console.error);
   }, [round]);
@@ -197,6 +200,12 @@ const DetailModal: React.FC<DetailModalProps> = ({ round, visible, onClose }) =>
               <Descriptions.Item label="Best AUC">{formatMetric(evalData.best_auc)}</Descriptions.Item>
               <Descriptions.Item label="Best Threshold">{formatMetric(evalData.best_threshold, 3)}</Descriptions.Item>
               <Descriptions.Item label="Source">{evalData.source_type ?? '-'}</Descriptions.Item>
+              <Descriptions.Item label="Metric Scope">{metricScopeLabel(evalData.metric_scope)}</Descriptions.Item>
+              {evalData.metric_source_note && (
+                <Descriptions.Item label="Metric Note" span={2}>
+                  {evalData.metric_source_note}
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="Per-Class F1" span={2}>
                 <pre style={{ fontSize: 12 }}>{JSON.stringify(evalData.test_per_class_f1, null, 2)}</pre>
               </Descriptions.Item>

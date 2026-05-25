@@ -29,11 +29,39 @@ class StateLock:
         self._lock.release()
 
 
+def _read_json_unlocked(path: Path) -> Optional[dict]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _with_lock_warning(data: Optional[dict]) -> Optional[dict]:
+    if data is None:
+        return None
+    result = dict(data)
+    result.setdefault("lock_warning", "state lock timeout; read without lock")
+    return result
+
+
+def _read_json_with_lock(path: Path) -> Optional[dict]:
+    if not path.exists():
+        return None
+    try:
+        with StateLock():
+            return json.loads(path.read_text(encoding="utf-8"))
+    except filelock.Timeout:
+        return _with_lock_warning(_read_json_unlocked(path))
+
+
 def read_shared_state() -> dict:
     if not SHARED_STATE_FILE.exists():
         return {"status": "idle", "error": None}
-    with StateLock():
-        return json.loads(SHARED_STATE_FILE.read_text(encoding="utf-8"))
+    data = _read_json_with_lock(SHARED_STATE_FILE)
+    if data is None:
+        return {"status": "idle", "error": "Failed to read shared_state.json"}
+    return data
 
 
 def write_shared_state(data: dict) -> None:
@@ -48,8 +76,7 @@ def write_shared_state(data: dict) -> None:
 def read_param_stats() -> Optional[dict]:
     if not PARAM_STATS_FILE.exists():
         return None
-    with StateLock():
-        return json.loads(PARAM_STATS_FILE.read_text(encoding="utf-8"))
+    return _read_json_with_lock(PARAM_STATS_FILE)
 
 
 def write_param_stats(data: dict) -> None:
@@ -64,8 +91,7 @@ def write_param_stats(data: dict) -> None:
 def read_train_task() -> Optional[dict]:
     if not TRAIN_TASK_FILE.exists():
         return None
-    with StateLock():
-        return json.loads(TRAIN_TASK_FILE.read_text(encoding="utf-8"))
+    return _read_json_with_lock(TRAIN_TASK_FILE)
 
 
 def write_train_task(data: dict) -> None:

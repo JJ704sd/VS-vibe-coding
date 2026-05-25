@@ -43,6 +43,13 @@ ECGFOUNDER_OUTPUTS = ECGFOUNDER_BASE / "outputs"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ASSISTANT_MEMORY_FILE = Path(__file__).resolve().parent / ".data" / "assistant_memory.json"
 _assistant_service: AssistantService | None = None
+RUNNER_CONFIG_KEYS = (
+    "epochs",
+    "batch_size",
+    "lr_backbone",
+    "balance_before_split",
+    "unfreeze_mode",
+)
 
 
 def get_assistant_service() -> AssistantService:
@@ -54,6 +61,25 @@ def get_assistant_service() -> AssistantService:
             RAGStore(REPO_ROOT),
         )
     return _assistant_service
+
+
+def _normalize_live_param_stats(stats: dict) -> dict:
+    normalized = dict(stats)
+    if all(key in normalized for key in ("round", "epoch", "timestamp")):
+        return normalized
+
+    training_state = read_shared_state()
+    epoch = training_state.get("current_epoch", training_state.get("epoch", 0))
+    normalized.setdefault("round", training_state.get("round") or "")
+    normalized.setdefault("epoch", epoch if epoch is not None else 0)
+    normalized.setdefault("timestamp", training_state.get("updated_at") or time.strftime("%Y-%m-%dT%H:%M:%S"))
+    return normalized
+
+
+def _runner_config_fields(config: dict) -> dict:
+    if not isinstance(config, dict):
+        return {}
+    return {key: config[key] for key in RUNNER_CONFIG_KEYS if key in config}
 
 app = FastAPI(title="ECGFounder Sidecar", version="1.0.0")
 
@@ -156,7 +182,7 @@ async def get_param_stats():
     stats = read_param_stats()
     if stats is None:
         raise HTTPException(status_code=404, detail="param_stats.json not found")
-    return stats
+    return _normalize_live_param_stats(stats)
 
 
 @app.get("/api/training/param-stats/stream")
@@ -190,11 +216,13 @@ async def submit_training_task(body: dict):
     if current_task and current_task.get("status") == "training":
         raise HTTPException(status_code=409, detail="Training already in progress")
 
+    config = body.get("config", {})
     task_id = f"task_{int(time.time() * 1000)}"
     task = {
         "id": task_id,
         "dataset": body.get("dataset"),
-        "config": body.get("config", {}),
+        "config": config,
+        **_runner_config_fields(config),
         "status": "queued",
         "submitted_at": time.time(),
     }

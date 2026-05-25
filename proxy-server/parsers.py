@@ -41,6 +41,13 @@ def _read_json(path: Path) -> Optional[dict]:
         return None
 
 
+def _with_metric_scope(data: dict, scope: str, note: str) -> dict:
+    result = dict(data)
+    result.setdefault("metric_scope", scope)
+    result.setdefault("metric_source_note", note)
+    return result
+
+
 def _read_latest_summary(round_dir: Path) -> Optional[dict]:
     summary_file = _latest_file(round_dir, "summary_*.json")
     return _read_json(summary_file) if summary_file else None
@@ -270,7 +277,11 @@ def parse_evaluation(round_name: str) -> Optional[dict]:
     """Parse test_evaluation JSON or synthesize one from CPSC summary/history files."""
     eval_file = ECGFOUNDER_OUTPUTS / f"test_evaluation_{round_name}.json"
     if eval_file.exists():
-        return _read_json(eval_file)
+        eval_data = _read_json(eval_file)
+        if eval_data is None:
+            return None
+        eval_data.setdefault("source_type", "evaluation_json")
+        return _with_metric_scope(eval_data, "test", "Metrics loaded from a test_evaluation JSON file.")
 
     round_dir = ECGFOUNDER_OUTPUTS / round_name
     if not round_dir.exists():
@@ -292,7 +303,7 @@ def parse_evaluation(round_name: str) -> Optional[dict]:
             report_text = ""
 
     best_f1 = _safe_float(summary.get("best_val_macro_f1") if summary else None, csv_data.get("best_f1", 0.0) if csv_data else 0.0)
-    return {
+    return _with_metric_scope({
         "model": round_name,
         "checkpoint": str(next(round_dir.glob("*.pth"), "")),
         "val_macro_f1_original": best_f1,
@@ -308,7 +319,7 @@ def parse_evaluation(round_name: str) -> Optional[dict]:
         "best_auc": _safe_float(summary.get("best_val_auc") if summary else None, csv_data.get("best_auc", 0.0) if csv_data else 0.0),
         "best_threshold": _safe_float(summary.get("best_threshold") if summary else None, csv_data.get("best_threshold", 0.0) if csv_data else 0.0),
         "source_type": "summary_json" if summary else "history_csv",
-    }
+    }, "validation", "Metrics are synthesized from validation history/summary files; test_* keys are compatibility fields.")
 
 
 def list_all_history_with_dataset() -> list[dict]:
