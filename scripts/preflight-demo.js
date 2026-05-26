@@ -33,6 +33,10 @@ function isPermissionDenied(message) {
   return /eperm|access is denied|拒绝访问/i.test(String(message));
 }
 
+function formatExecFileError(error) {
+  return [error?.message, error?.stdout, error?.stderr].filter(Boolean).join('\n');
+}
+
 async function checkHttp(url) {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(2500) });
@@ -50,7 +54,7 @@ async function getListeningPids(port) {
     const { stdout } = await execFileAsync('netstat', ['-ano', '-p', 'tcp'], { windowsHide: true });
     return { pids: parseListeningPids(stdout, port), error: null };
   } catch (error) {
-    return { pids: [], error: error.message };
+    return { pids: [], error: formatExecFileError(error) };
   }
 }
 
@@ -76,7 +80,7 @@ async function findProcessIds(scriptName) {
     });
     return { pids: parseProcessIds(stdout), error: null };
   } catch (error) {
-    return { pids: [], error: error.message };
+    return { pids: [], error: formatExecFileError(error) };
   }
 }
 
@@ -167,6 +171,7 @@ if (require.main === module) {
 
 module.exports = {
   buildProcessSearchCommand,
+  formatExecFileError,
   isPermissionDenied,
   parseListeningPids,
   parseProcessIds,

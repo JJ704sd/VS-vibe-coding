@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import preflightDemo from './preflight-demo.js';
 
-const { buildProcessSearchCommand, isPermissionDenied, parseListeningPids, parseProcessIds } = preflightDemo;
+const {
+  buildProcessSearchCommand,
+  formatExecFileError,
+  isPermissionDenied,
+  parseListeningPids,
+  parseProcessIds,
+} = preflightDemo;
 
 test('parseListeningPids returns distinct PIDs for a target port', () => {
   const output = [
@@ -28,4 +34,13 @@ test('isPermissionDenied detects blocked system process inspection', () => {
   assert.equal(isPermissionDenied('spawn EPERM'), true);
   assert.equal(isPermissionDenied('Access is denied'), true);
   assert.equal(isPermissionDenied('process is not running'), false);
+});
+
+test('formatExecFileError includes stderr access-denied details', () => {
+  const message = formatExecFileError({
+    message: 'Command failed: powershell.exe -NoProfile -Command ...',
+    stderr: 'Get-CimInstance : 拒绝访问',
+  });
+
+  assert.equal(isPermissionDenied(message), true);
 });
