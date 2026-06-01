@@ -32,3 +32,23 @@ Git 历史使用简短 Conventional Commits 风格，例如 `feat: show agent de
 ## 安全与配置提示
 
 当前 API 地址和 `ECGFOUNDER_BASE` 主要面向本地 demo。不要提交真实病例数据、模型权重、训练缓存或 `outputs/` 大文件。Sidecar 暴露本地训练和 checkpoint 能力，部署到非本机前需限制 CORS、校验路径并增加鉴权。
+
+## 环境变量与运行配置
+
+Web 前端运行配置由 `src/config/env.ts` 统一暴露，编译时通过 `webpack.DefinePlugin` 把 `process.env.X` 替换为字面量。开发环境由 `dotenv-webpack` 从仓库根 `.env` 加载；生产环境只读 shell 环境（`path: false`）。缺省值写在 `src/config/env.ts` 的 `fromEnv` 第二个参数里，确保 `.env` 缺失或 Node 单测直接读 `process.env` 时仍能拿到 demo 用 localhost。
+
+| 变量 | 用途 |
+|------|------|
+| `CLINIC_API_BASE_URL` | 病例/仪表盘后端（`clinicApi.ts`） |
+| `TRAINING_API_BASE_URL` | 训练调度后端（`trainingApi.ts`） |
+| `ASSISTANT_API_BASE_URL` | 助手/RAG 后端（`ecgAssistantApi.ts`） |
+| `ANALYZE` | `true` 时启用 `webpack-bundle-analyzer` 报告 |
+| `REACT_APP_FIREBASE_*` | Firebase 初始化（`firebaseService.ts`） |
+| `REACT_APP_MINIMAX_API_ENDPOINT` | Minimax 直连端点（生产请走后端代理） |
+
+新增端点的标准做法：
+
+1. `src/config/env.ts` 新增 `fromEnv('XXX', 'fallback')` 导出常量。
+2. 两个 webpack 配置的 `DefinePlugin` 块里加 `process.env.XXX` 的映射。
+3. `.env.example` 同步补一行。
+4. 在 service 中 `import { XXX } from '../config/env'`，**不要**直接 `process.env.XXX || ...`。
