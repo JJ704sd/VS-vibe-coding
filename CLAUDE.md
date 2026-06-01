@@ -110,3 +110,56 @@ API:
 - webpack 输出清理在 Windows 上保守处理
 - 避免引入新的 lint 错误
 - 多步骤工作使用 `.planning/` 目录记录
+
+## 环境变量与运行配置
+
+Web 前端通过自定义 webpack 注入运行配置，**不依赖** CRA/Vite 风格的自动注入。
+
+### 机制
+
+1. `src/config/env.ts` 是唯一的运行配置源。它通过 `process.env.X` 读取变量，并提供 `||` 回退值（demo 用 localhost），所以即便 `.env` 文件缺失、webpack 未注入变量或 Node 单测直接读 `process.env`，回退值都会生效。
+2. `webpack.config.js` / `webpack.config.dev.js` 使用 [`dotenv-webpack`](https://www.npmjs.com/package/dotenv-webpack) 加载环境变量，再用 `webpack.DefinePlugin` 把 `process.env.CLINIC_API_BASE_URL` 等替换成编译期常量。Dev 配置从仓库根的 `.env` 读取；prod 配置只读 shell 环境（`path: false`、`systemvars: true`）。
+3. `webpack-bundle-analyzer` 仅在 `ANALYZE=true` 时启用，运行 `ANALYZE=true npm run build` 会产出 `dist/bundle-report.html`。
+
+### 关键变量
+
+| 变量 | 默认值 | 用途 |
+|------|--------|------|
+| `CLINIC_API_BASE_URL` | `http://localhost:4000/api` | `clinicApi.ts` 用的病例/仪表盘后端 |
+| `TRAINING_API_BASE_URL` | `http://localhost:6090` | `trainingApi.ts` 用的训练调度后端 |
+| `ASSISTANT_API_BASE_URL` | `http://localhost:6090` | `ecgAssistantApi.ts` 用的助手/RAG 后端 |
+| `ANALYZE` | `false` | `true` 时启用 bundle-analyzer 报告 |
+| `REACT_APP_FIREBASE_*` | — | Firebase SDK 初始化（`firebaseService.ts`） |
+| `REACT_APP_MINIMAX_API_ENDPOINT` | `https://api.minimax.chat` | Minimax 直连端点（生产请走后端代理） |
+
+### 本地开发
+
+1. 复制 `.env.example` 为 `.env`（可选；缺省也能跑）。
+2. 调整其中的 URL / Firebase 凭据。
+3. `npm run dev:web` 启动 webpack-dev-server。DefinePlugin 会把变量内联到 bundle，回退值保证 `.env` 缺失时不报错。
+4. 没有 `.env` 时，终端会看到一行 `[env] runtime config: {...}` 调试输出，确认当前值。
+
+### 临时覆盖（不写文件）
+
+```bash
+# Windows PowerShell
+$env:CLINIC_API_BASE_URL='http://staging.example/api'; npm run build
+
+# 跨平台
+npx cross-env CLINIC_API_BASE_URL=http://staging.example/api npm run build
+```
+
+### 验证：bundle 中是否内联了正确 URL
+
+```bash
+# 把变量换成占位 URL 再构建，grep 产物确认替换成功
+cross-env CLINIC_API_BASE_URL=http://example.test npm run build
+grep -r "example.test" dist
+```
+
+### 新增服务 / 端点
+
+1. 在 `src/config/env.ts` 加 `fromEnv('NEW_API_BASE_URL', 'http://localhost:xxxx')` 并 `export`。
+2. 在 `webpack.config.js` 和 `webpack.config.dev.js` 的 `DefinePlugin` 中追加 `'process.env.NEW_API_BASE_URL': JSON.stringify(process.env.NEW_API_BASE_URL)`。
+3. 在 `.env.example` 增补一行。
+4. 在服务文件中 `import { NEW_API_BASE_URL } from '../config/env'`。

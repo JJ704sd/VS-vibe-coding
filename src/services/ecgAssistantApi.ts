@@ -1,4 +1,6 @@
-const API_BASE = 'http://localhost:6090';
+import { ASSISTANT_API_BASE_URL } from '../config/env.ts';
+
+const API_BASE = ASSISTANT_API_BASE_URL;
 
 export interface AssistantHealth {
   available: boolean;

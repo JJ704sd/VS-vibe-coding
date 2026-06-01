@@ -1,8 +1,9 @@
 ﻿import { mockDiagnosisStats, mockPatients, mockRecentActivities, getPatientSummary } from '../data/mockClinic';
 import { ECGRecord, Patient } from '../types';
+import { CLINIC_API_BASE_URL } from '../config/env.ts';
 import { isNetworkError, requestJson } from './httpClient';
 
-const API_BASE_URL = 'http://localhost:4000/api';
+const API_BASE_URL = CLINIC_API_BASE_URL;
 const BACKUP_SOURCE_LABEL = 'PTB-XL 20 条备份';
 
 export interface DashboardMetric {

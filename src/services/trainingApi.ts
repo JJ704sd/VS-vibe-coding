@@ -1,4 +1,6 @@
-const API_BASE = 'http://localhost:6090';
+import { TRAINING_API_BASE_URL } from '../config/env.ts';
+
+const API_BASE = TRAINING_API_BASE_URL;
 
 export interface TrainingState {
   status: 'idle' | 'training' | 'running' | 'done' | 'error';
