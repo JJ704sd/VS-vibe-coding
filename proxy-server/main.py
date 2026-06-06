@@ -83,9 +83,22 @@ def _runner_config_fields(config: dict) -> dict:
 
 app = FastAPI(title="ECGFounder Sidecar", version="1.0.0")
 
+# CORS allow-list. The default permits the local dev servers; deployments
+# that expose the sidecar beyond localhost must set
+# `SIDECAR_ALLOW_ORIGINS` to a comma-separated list of trusted origins
+# (e.g. `https://ecg.example.com,https://staging.example.com`).
+# Leaving the default `*` would let any site read training state and
+# trigger destructive endpoints, so we restrict it explicitly here.
+DEFAULT_SIDECAR_ALLOW_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:4000,http://127.0.0.1:4000"
+SIDECAR_ALLOW_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("SIDECAR_ALLOW_ORIGINS", DEFAULT_SIDECAR_ALLOW_ORIGINS).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=SIDECAR_ALLOW_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -260,11 +273,21 @@ async def get_task_status():
 # ── 历史记录 ────────────────────────────────────────────────────────────────
 
 @app.delete("/api/training/history/{round_name}")
-async def delete_training_round(round_name: str):
-    """Delete a training round (directory and all its files)"""
+async def delete_training_round(round_name: str, confirm: str = Query(default="")):
+    """Delete a training round (directory and all its files).
+
+    The `confirm` query parameter must equal the round name itself. This
+    mirrors the typical browser confirm dialog so that a stray DELETE
+    request (e.g. from a link prefetcher) cannot wipe a training round.
+    """
     # Validate round_name to prevent path traversal
     if ".." in round_name or round_name.startswith("/") or round_name.startswith("\\"):
         raise HTTPException(status_code=400, detail="Invalid round name")
+    if confirm != round_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Pass ?confirm=<round_name> to acknowledge deletion",
+        )
     import shutil
 
     round_dir = ECGFOUNDER_OUTPUTS / round_name
