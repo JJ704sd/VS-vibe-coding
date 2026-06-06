@@ -50,6 +50,21 @@ This repository is currently optimized for demo and workflow validation. Some sc
 - `src/utils/` signal processing and export helpers
 - `src/store/` Redux state
 
+## Tests
+
+```bash
+# Frontend unit tests (Node built-in test runner, no Jest)
+npm run test:unit
+
+# Backend pytest (proxied via npm script so CI and dev use the same path)
+npm run test:backend
+
+# One-shot quality gate: lint + typecheck + unit tests + production build
+npm run check
+```
+
+See `docs/demo-startup.md` for end-to-end demo checks (preflight, sidecar, runner, observer).
+
 ## Version
 
 - `v1.0.0`

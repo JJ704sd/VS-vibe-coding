@@ -9,6 +9,12 @@ __pycache__/
 .pytest-tmp/
 pytest-work/
 .tmp-*
+
+# Tooling state (not project files; should never be committed)
+.mavis/
+.opencode/
+.worktrees/
+
 proxy-server/assistant_memory.json
 proxy-server/.data/
 proxy-server/.tmp-pytest*/

@@ -15,9 +15,12 @@ npm run dev:web
 # 生产构建
 npm run build
 
-# 测试（ Jest）
+# 测试（Node 内置 test runner，无 Jest / Vitest 依赖）
 npm test                        # 所有测试
-npm test -- --testPathPattern=ecgParser  # 单个测试文件
+npm run test:unit               # 等价于 npm test
+npm run test:unit -- --test-name-pattern=ecgParser  # 按用例名过滤
+# 单个文件（手动指定）
+node --import ./scripts/ts-resolver-register.mjs --test --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON src/services/ecgParser.test.ts
 
 # 代码检查
 npm run lint
@@ -28,6 +31,11 @@ cd proxy-server
 python -m uvicorn main:app --host 0.0.0.0 --port 6090
 
 # 后端测试
+# 推荐走仓库根目录的脚本，CI 也是这样跑的（隔离 temp / cache）：
+npm run test:backend                          # 所有测试
+# 单个文件：
+node scripts/run-backend-tests.js -- tests/test_assistant_memory.py
+# 等价手动命令：
 cd proxy-server
 python -m pytest tests/ -v                     # 所有测试
 python -m pytest tests/test_assistant_memory.py -v  # 单个测试文件
