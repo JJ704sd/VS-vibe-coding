@@ -41,6 +41,18 @@ npm run build
 
 This repository is currently optimized for demo and workflow validation. Some screens still use mock data, and the DICOM / HL7 / WFDB parsers are intentionally lightweight.
 
+### Demo / non-clinical boundary
+
+This project is a **research preview**, not a medical device.
+
+- **Patient data** is sourced from a 20-record PTB-XL backup embedded in `src/data/mockClinic.ts`. Real deployments must swap this for a clinical data source behind the same `clinicApi.ts` interface.
+- **AI inference** in `modelService.ts` falls back to `mockPredict(...)` when no TF.js LayersModel is loaded. The accuracy numbers shown on the `AI Models` page are mock; the underlying model URL is `/models/ecg-classifier/model.json` and must be replaced with a validated `.pth` / TF.js bundle.
+- **Sidecar** (`proxy-server/main.py`) is bound to `localhost` and reads from the local `D:/ECG founder/ECGFounder` training workspace by default; the path is overridable via `ECGFOUNDER_BASE`.
+- **Assistant** (memory + RAG) writes to `proxy-server/assistant_memory.json`; nothing leaves the machine.
+- **CORS** for the sidecar is restricted to the local dev origins by default (`SIDECAR_ALLOW_ORIGINS` env var).
+
+In the UI, every page surfaces a yellow **Non-clinical preview** banner at the top, the sidebar carries a `Demo / Mock` mode tag, and the `AI Models` page marks each entry with an orange `MOCK` chip.
+
 ## Project Structure
 
 - `public/` static entry files

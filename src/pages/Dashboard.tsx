@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Col, Empty, Progress, Row, Space, Spin, Statistic, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, Empty, Progress, Row, Space, Spin, Statistic, Tag, Typography } from 'antd';
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -43,6 +43,17 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="page-shell page-shell-wide">
+      <Alert
+        className="section-spacer"
+        type="info"
+        showIcon
+        message="仪表盘数字默认来自 PTB-XL 20 条备份 + mock 指标"
+        description={
+          overview?.sourceLabel
+            ? `当前 sourceLabel: ${overview.sourceLabel}。这是 mock-api / fallback 数据，真实部署需接入临床数据。`
+            : '当前 sourceLabel: PTB-XL 20 条备份。Mock 数据，仅供演示。'
+        }
+      />
       <section className="page-hero">
         <Row gutter={[24, 24]} align="middle">
           <Col xs={24} lg={15}>

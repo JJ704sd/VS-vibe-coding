@@ -8,7 +8,9 @@ import {
   RobotOutlined,
   SettingOutlined,
   ThunderboltOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
+import DemoBanner from '../DemoBanner';
 
 const { Sider, Header } = Layout;
 
@@ -89,13 +91,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <div className="app-brand-mark">ECG</div>
           <div className="app-brand-copy">
             <div className="app-brand-title">ECG Platform</div>
-            <div className="app-brand-subtitle">Clinical Workbench</div>
+            <div className="app-brand-subtitle">Research Workbench</div>
           </div>
         </div>
         <div className="app-brand-status">
           <div className="app-brand-status-line">
-            <span>Workspace</span>
-            <Tag color="green">Ready</Tag>
+            <span>Mode</span>
+            <Tag icon={<ExperimentOutlined />} color="orange">Demo / Mock</Tag>
           </div>
           <div className="app-brand-status-line">
             <span>Routes</span>
@@ -120,8 +122,8 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <span className="app-header-subtitle">{currentPage.subtitle}</span>
           </div>
           <Space wrap size={8} className="app-header-cluster">
-            <Tag className="app-header-tag" color="green">
-              Workspace online
+            <Tag className="app-header-tag" color="orange" icon={<ExperimentOutlined />}>
+              Non-clinical preview
             </Tag>
             <Tag className="app-header-tag" color="blue">
               {currentPage.tag}
@@ -131,6 +133,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </Tag>
           </Space>
         </Header>
+        <DemoBanner />
         {children}
       </Layout>
     </Layout>

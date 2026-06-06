@@ -1,6 +1,6 @@
 ﻿import React, { useState } from 'react';
-import { Button, Card, Col, Row, Space, Statistic, Switch, Table, Tag, Typography, message, Progress } from 'antd';
-import { DownloadOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Col, Row, Space, Statistic, Switch, Table, Tag, Typography, message, Progress } from 'antd';
+import { DownloadOutlined, ExperimentOutlined } from '@ant-design/icons';
 
 interface ModelInfo {
   id: string;
@@ -9,14 +9,15 @@ interface ModelInfo {
   accuracy: number;
   status: 'loaded' | 'loading' | 'unloaded';
   size: string;
+  isMock: boolean;
 }
 
 const { Title, Text } = Typography;
 
 const mockModels: ModelInfo[] = [
-  { id: '1', name: 'ECG Classifier', version: '1.0.0', accuracy: 92.5, status: 'loaded', size: '25MB' },
-  { id: '2', name: 'Heart Segmentation', version: '2.1.0', accuracy: 88.3, status: 'unloaded', size: '45MB' },
-  { id: '3', name: 'Arrhythmia Detector', version: '1.2.0', accuracy: 95.1, status: 'unloaded', size: '18MB' },
+  { id: '1', name: 'ECG Classifier', version: '1.0.0', accuracy: 92.5, status: 'loaded', size: '25MB', isMock: true },
+  { id: '2', name: 'Heart Segmentation', version: '2.1.0', accuracy: 88.3, status: 'unloaded', size: '45MB', isMock: true },
+  { id: '3', name: 'Arrhythmia Detector', version: '1.2.0', accuracy: 95.1, status: 'unloaded', size: '18MB', isMock: true },
 ];
 
 const modelMetrics = [
@@ -70,13 +71,19 @@ const AIModels: React.FC = () => {
     },
     {
       title: '状态',
-      dataIndex: 'status',
       key: 'status',
-      width: 100,
-      render: (status: ModelInfo['status']) => (
-        <Tag color={status === 'loaded' ? 'green' : status === 'loading' ? 'orange' : 'default'}>
-          {status === 'loaded' ? '已加载' : status === 'loading' ? '加载中' : '未加载'}
-        </Tag>
+      width: 220,
+      render: (_: unknown, record: ModelInfo) => (
+        <Space size={4} wrap>
+          <Tag color={record.status === 'loaded' ? 'green' : record.status === 'loading' ? 'orange' : 'default'}>
+            {record.status === 'loaded' ? '已加载' : record.status === 'loading' ? '加载中' : '未加载'}
+          </Tag>
+          {record.isMock ? (
+            <Tag icon={<ExperimentOutlined />} color="orange">
+              MOCK
+            </Tag>
+          ) : null}
+        </Space>
       ),
     },
     {
@@ -111,6 +118,22 @@ const AIModels: React.FC = () => {
           <Button>刷新状态</Button>
         </div>
       </section>
+
+      <Alert
+        className="section-spacer"
+        type="info"
+        showIcon
+        icon={<ExperimentOutlined />}
+        message="本页模型为 mock 占位 — 真实部署需替换为已验证的 .pth / TF.js LayersModel"
+        description={
+          <>
+            当前展示的「ECG Classifier / Heart Segmentation / Arrhythmia Detector」三条记录是
+            <code>modelService.mockPredict</code> 在没有可用模型权重时返回的占位数据，
+            <b>准确率数字也是 mock</b>。生产环境需通过 ECGFounder sidecar 加载真实 checkpoint，
+            详见 <code>src/services/modelService.ts</code> 的 <code>useMockInference</code> 标志。
+          </>
+        }
+      />
 
       <div className="section-spacer">
         <Space wrap size={10}>

@@ -107,6 +107,7 @@ ECGFounder 独立仓库的 observer 修复已单独拆分到 `JJ704sd/ECGFounder
 
 4. 产品边界仍是 demo / workflow validation。
    README 已说明部分页面仍用 mock 数据，DICOM / HL7 / WFDB parser 是轻量实现。`modelService` 在模型不可用时会进入 mock inference。进入临床或严肃分析场景前，需要明确标注非诊断用途、真实数据接入路径和解析准确性边界。
+   *2026-06-06 13:32 进展*：新增 `src/components/DemoBanner.tsx`（顶栏黄色 "Non-clinical preview"）+ MainLayout 侧栏改 "Demo / Mock" 模式 tag + `AIModels` 每行加 `MOCK` chip + `Dashboard` 加 sourceLabel 提示 + README 新增 "Demo / non-clinical boundary" 段。`SmartAssistancePanel` 原本就只输出"辅助/参考/上下文检索"，不输出"诊断结论"，保留。
 
 5. 测试覆盖偏服务层，缺少关键 UI / 工作流验证。
    当前服务和诊断规则覆盖较好，但前端仍缺少 Annotation Studio canvas 交互、病例列表/详情 CRUD、训练 SSE、助手面板渲染、导入/导出和演示页面 smoke / e2e。
@@ -118,7 +119,7 @@ ECGFounder 独立仓库的 observer 修复已单独拆分到 `JJ704sd/ECGFounder
    `CLAUDE.md` 曾写“Jest”，但 `package.json` 实际使用 Node 内置 test runner。建议同步 README / AGENTS / CLAUDE 中的测试说明，并保持 review 文档随 main 合并更新。
 
 8. ECGFounder 原始工作区仍然很脏。
-   `D:\ECG founder\ECGFounder` 的原始 `master` 仍有本地 ahead 提交、多个修改文件和大量训练产物。当前 observer 修复已在隔离 worktree 中单独推送，但原始工作区仍需后续清点、忽略或拆分提交。
+   `D:\ECG founder\ECGFounder` 的原始 `master` 仍有本地 ahead 提交、多个修改文件和大量训练产物。**截至 2026-06-06 13:24，外部仓库 `JJ704sd/ECGFounder` 上的 `codex/fix-param-observer-current-epoch` 分支仍未创建对应的 PR**（PR 列表 0 Open / 0 Closed），创建链接是 `https://github.com/JJ704sd/ECGFounder/pull/new/codex/fix-param-observer-current-epoch`，需要 repo owner 手动开。原始工作区仍需后续清点、忽略或拆分提交。
 
 ## 建议下一步
 
