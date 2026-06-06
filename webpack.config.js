@@ -116,8 +116,27 @@ module.exports = {
         firebase: {
           test: /[\\/]node_modules[\\/]firebase[\\/]/,
           name: 'firebase',
-          chunks: 'all',
+          // Async-only: the Firebase SDK is gated behind an
+          // `await import('firebase/...')` inside `firebaseService.initialize()`,
+          // so it should not be in the main entrypoint. The `vendor`
+          // cacheGroup below `exclude`s this path so the catch-all does
+          // not pull firebase back into the main vendor chunk.
+          chunks: 'async',
           priority: 25,
+        },
+        '@firebase': {
+          // The `@firebase/*` scoped sub-packages (auth, firestore,
+          // storage, util, component, logger, ...) are pulled in
+          // transitively by `firebase/app`. They must be split out of
+          // the main entrypoint together with `firebase` itself,
+          // otherwise the catch-all `vendor` cacheGroup keeps ~1 MiB
+          // worth of @firebase modules in the main entry vendor chunk
+          // (the previous failure mode). Async-only, same reasoning as
+          // the firebase rule.
+          test: /[\\/]node_modules[\\/]@firebase[\\/]/,
+          name: '@firebase',
+          chunks: 'async',
+          priority: 24,
         },
         antd: {
           test: /[\\/]node_modules[\\/](antd|@ant-design)[\\/]/,
@@ -132,7 +151,18 @@ module.exports = {
           priority: 15,
         },
         vendor: {
-          test: /[\\/]node_modules[\\/]/,
+          // Match anything under node_modules EXCEPT firebase and
+          // @tensorflow, which have their own cacheGroups above. We
+          // use a function here because webpack 5 cacheGroup does not
+          // support an `exclude` field. Without this, the catch-all
+          // vendor chunk would pull firebase back into the main
+          // entrypoint whenever webpack decides the firebase async-only
+          // rule cannot apply.
+          test: (module) => {
+            if (!module.resource) return false;
+            if (!/[\\/]node_modules[\\/]/.test(module.resource)) return false;
+            return !/[\\/](firebase|@tensorflow|@firebase)[\\/]/.test(module.resource);
+          },
           name: 'vendors',
           chunks: 'all',
           priority: 10,
@@ -146,19 +176,23 @@ module.exports = {
   // silent yellow icon.
   //
   // The numbers are intentionally generous:
-  //   * main entrypoint       2 500 000 B  (2.5 MiB)
-  //       includes the main bundle + Antd + TensorFlow + Firebase + runtime.
-  //       Antd (~600 KiB) and TensorFlow + Firebase (~1.1 MiB combined) are
-  //       real production costs we cannot drop without rewriting
-  //       firebaseService and the model inference path to use dynamic
-  //       imports; they are tracked as a follow-up in REVIEW.md (risk #6).
+  //   * main entrypoint       1 600 000 B  (1.5 MiB + ~50 KiB headroom)
+  //       The main entry is now 1.5 MiB in practice (main bundle + Antd +
+  //       a small vendors chunk for react / d3 / fabric / dexie / etc.,
+  //       ~28 + 600 + 907 + 4 KiB), but the exact byte count drifts as
+  //       dependencies change. The 50 KiB headroom avoids spurious CI
+  //       red on a small bump.
+  //       Firebase SDK (~1.1 MiB) and TensorFlow.js are pulled in via
+  //       async chunks on demand; the firebase chunk is fired only when
+  //       AnnotationStudio mounts, so it does not contribute to the
+  //       main entrypoint size here.
   //   * individual asset      1 500 000 B  (1.5 MiB)
   //       any single chunk bigger than this is a sign that the splitChunks
-  //       cacheGroups (tensorflow / firebase / antd / echarts) are not doing
-  //       their job and need another look.
+  //       cacheGroups (tensorflow / firebase / @firebase / antd / echarts)
+  //       are not doing their job and need another look.
   performance: {
     hints: 'error',
-    maxEntrypointSize: 2500000,
+    maxEntrypointSize: 1600000,
     maxAssetSize: 1500000,
   },
 };

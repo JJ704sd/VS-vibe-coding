@@ -141,6 +141,18 @@ const AnnotationStudio: React.FC = () => {
     }
   }, [location.search, routeRecordId]);
 
+  // Kick off the lazy Firebase SDK load as soon as the workbench mounts.
+  // The chunk is fetched in parallel with the rest of the page render and
+  // is only paid for by users who actually open AnnotationStudio. If
+  // REACT_APP_FIREBASE_* env vars are not set, the warning inside
+  // initialize() handles the empty-config path; we still await so the
+  // SDK import is cached before the user adds the first annotation.
+  useEffect(() => {
+    void firebaseService.initialize().catch((error) => {
+      console.warn('[AnnotationStudio] Firebase lazy init failed:', error);
+    });
+  }, []);
+
   const cloneLeads = (inputLeads: ECGLead[]): ECGLead[] =>
     inputLeads.map((lead) => ({
       ...lead,
