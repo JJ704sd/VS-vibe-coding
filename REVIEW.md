@@ -1,7 +1,33 @@
 # ECG Annotation Platform Review
 
 日期：2026-05-24
-最后更新：2026-05-26
+最后更新：2026-06-06
+
+## 2026-06-06 hardening round (本轮新增)
+
+围绕 CI 触发错配 + 仓库卫生 + sidecar 边界，落到 5 个 commit（按合并顺序）：
+
+| SHA | 类型 | 摘要 |
+| --- | --- | --- |
+| `6c9d019` | `chore(ci)` | CI workflow 触发改 `main`，拆 `quality` + `build` + `deploy` 三 job；新增 `proxy-server/requirements.txt` 让 CI 能装 sidecar 依赖 |
+| `edda1ac` | `chore(repo)` | `.gitignore` 加 `.mavis/` / `.opencode/` / `.worktrees/`；`CLAUDE.md` 与 `README.md` 同步 Node 内置 test runner 描述，引入 `npm run test:backend` 入口 |
+| `c7328a5` | `fix(sidecar)` | CORS 从 `["*"]` 改读 `SIDECAR_ALLOW_ORIGINS` 环境变量（默认本地 dev origins）；`DELETE /api/training/history/{round_name}` 加 `?confirm=<round_name>` 二次确认 |
+| `17967a9` | `fix(tools)` | `run_platform.bat` 读 `ECGFOUNDER_BASE` 环境变量，未设时回退 Windows 默认路径并提示；sidecar 启动时同步转发该变量 |
+| `4fdbd60` / `b334c7d` | `fix(ci)` | `setup-node` 升到 Node 24（4fdbd60）；`npm run test:unit` 跑在 7 GB runner 上 strip-types + Firebase + Minimax SDK 在 `--test-isolation=none` 共享进程下 OOM 触发 SIGKILL，b334c7d 加 `NODE_OPTIONS=--max-old-space-size=6144` 限 V8 堆 |
+
+**已结清（按上一轮 #1–#8 风险点对照）**：
+- 风险 #1（CI 触发分支）→ 6c9d019 修复
+- 风险 #2（运行端点硬编码）→ 此前 `feature/env-config`（`a17fbec`）已修复，本轮 `edda1ac` 同步文档
+- 风险 #3（sidecar 安全边界）→ c7328a5 收紧 CORS + 删除类接口加 confirm
+- 风险 #7（文档漂移）→ edda1ac 修复
+- 风险 #8（ECGFounder 原始工作区）→ 仍待办（外部仓库 `JJ704sd/ECGFounder` 上的 `codex/fix-param-observer-current-epoch` PR）
+
+**未变（仍属 P1）**：
+- 风险 #4（demo / 生产边界说明）
+- 风险 #5（UI / 工作流 e2e 覆盖）
+- 风险 #6（bundle 预算与按需懒加载）
+
+CI 状态：本轮 5 个 commit 已 push 至 `origin/main`，CI workflow（head `b334c7d`）正在跑 quality / build / deploy。
 
 ## 结论
 
@@ -15,11 +41,10 @@ ECGFounder 独立仓库的 observer 修复已单独拆分到 `JJ704sd/ECGFounder
 
 - 仓库路径：`D:\VS vibe coding files\ecg-annotation-platform`
 - 当前分支：`main`
-- 本地 HEAD：`004f61a Merge pull request #11 from JJ704sd/codex/continue-ecg-hardening`
+- 本地 HEAD：`b334c7d fix(ci): lift to Node 24 and cap V8 heap for unit tests`
 - 远端同步点：`origin/main`
-- 当前状态：本地 `main` 已 fast-forward 到 `origin/main`，工作区干净。
-- 已合并分支：`codex/continue-ecg-hardening`
-- 本地已清理：已删除本地 `codex/continue-ecg-hardening` 分支。
+- 当前状态：本地 `main` 与 `origin/main` 同步，工作区干净。
+- 已合并分支：`codex/continue-ecg-hardening` / `feature/env-config` / `fix/lint-after-merge` / `feature/unit-tests`。
 - 远端功能分支仍存在：`origin/codex/continue-ecg-hardening` 指向 `efbdd04 fix: handle preflight permission errors`。
 
 ## 本轮整理
