@@ -25,9 +25,11 @@
 
 **未变（仍属 P1）**：
 - 风险 #5（UI / 工作流 e2e 覆盖）
-- 风险 #6（bundle 预算与按需懒加载）—— webpack budget 已用 2.5 MiB + `hints: error` 容错，但真拆 lazy（firebaseService 改 dynamic import）仍是工程债
 
-CI 状态：所有 commit 已 push 至 `origin/main`，最后两次 CI 跑通（head `1964487` 2:18 success、head `0829b9e` 2:25 success），站点 redeploy 到 `https://jj704sd.github.io/VS-vibe-coding/`，含 demo 边界 banner / MOCK chip / 真实 bundle。
+**已结清**：
+- 风险 #6（bundle 预算与按需懒加载）→ `bb85031 perf(build): lazy-load firebase + @firebase via dynamic import and split chunks`。`firebaseService` 顶层 import 改为 type-only + `await import()` 内填充到 instance fields，AnnotationStudio 进 useEffect 时触发 init。webpack 新增 `firebase` / `@firebase` cacheGroup（均 `chunks: 'async'`），vendor cacheGroup 改用 function test 排除 `firebase/@tensorflow/@firebase`。结果：主入口 1.76 → 1.5 MiB（main 28 + Antd 600 + vendors 907 + runtime 4 KB），firebase SDK（6.61 + 515 = ~520 KiB）拆为按需 async chunk，仅在用户点进 AnnotationStudio 时下载。webpack budget 同步收紧 `maxEntrypointSize: 2 500 000 → 1 600 000`（1.5 MiB + ~50 KiB headroom），保留 `hints: 'error'` 防止后续再胖。
+
+CI 状态：所有 commit 已 push 至 `origin/main`，最后三次 CI 跑通（`1964487` 2:18 success / `0829b9e` 2:25 success / `bb85031` 2:12 success，2026-06-06 用户确认绿色），站点 redeploy 到 `https://jj704sd.github.io/VS-vibe-coding/`，含 demo 边界 banner / MOCK chip / bundle 预算守门。
 
 ## 结论
 
