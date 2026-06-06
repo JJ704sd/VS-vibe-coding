@@ -30,7 +30,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Setup Python
@@ -50,6 +50,10 @@ jobs:
         run: npm run typecheck
 
       - name: Frontend unit tests
+        env:
+          # Cap the V8 heap so strip-types + firebase + minimax SDK
+          # imports do not OOM the runner (SIGKILL → exit 9 on Node 22).
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run test:unit
 
       - name: Install Python dependencies
@@ -73,7 +77,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
