@@ -19,15 +19,15 @@
 - 风险 #1（CI 触发分支）→ 6c9d019 修复
 - 风险 #2（运行端点硬编码）→ 此前 `feature/env-config`（`a17fbec`）已修复，本轮 `edda1ac` 同步文档
 - 风险 #3（sidecar 安全边界）→ c7328a5 收紧 CORS + 删除类接口加 confirm
+- 风险 #4（demo / 生产边界说明）→ 1964487 UI 全面标注（顶栏 banner + 侧栏 Demo/Mock tag + AIModels MOCK chip + Dashboard sourceLabel Alert + README 新段）
 - 风险 #7（文档漂移）→ edda1ac 修复
-- 风险 #8（ECGFounder 原始工作区）→ 仍待办（外部仓库 `JJ704sd/ECGFounder` 上的 `codex/fix-param-observer-current-epoch` PR）
+- 风险 #8（ECGFounder 外部 PR）→ 已开至**上游** `PKUDigitalHealth/ECGFounder` PR #1，5 commit / 16 文件 / +27,782 行 / 状态 Open / 0 review / 与 base 无冲突（2026-06-06 截图确认）
 
 **未变（仍属 P1）**：
-- 风险 #4（demo / 生产边界说明）
 - 风险 #5（UI / 工作流 e2e 覆盖）
-- 风险 #6（bundle 预算与按需懒加载）
+- 风险 #6（bundle 预算与按需懒加载）—— webpack budget 已用 2.5 MiB + `hints: error` 容错，但真拆 lazy（firebaseService 改 dynamic import）仍是工程债
 
-CI 状态：本轮 5 个 commit 已 push 至 `origin/main`，CI workflow（head `b334c7d`）正在跑 quality / build / deploy。
+CI 状态：所有 commit 已 push 至 `origin/main`，最后两次 CI 跑通（head `1964487` 2:18 success、head `0829b9e` 2:25 success），站点 redeploy 到 `https://jj704sd.github.io/VS-vibe-coding/`，含 demo 边界 banner / MOCK chip / 真实 bundle。
 
 ## 结论
 
@@ -35,13 +35,13 @@ CI 状态：本轮 5 个 commit 已 push 至 `origin/main`，CI workflow（head 
 
 本轮 hardening 已覆盖 ECGFounder training sidecar、前端训练看板、训练历史 parser、中文演示预检和演示启动文档。前端 lint、TypeScript 类型检查、前端单测、后端 pytest、生产构建、中文 preflight 和基础 sidecar 数据 smoke 均已通过。主要剩余风险不在当前编译正确性，而在 CI / Pages 触发配置、运行环境硬编码、sidecar 安全边界、UI 工作流测试、bundle 预算和 demo / 生产边界说明。
 
-ECGFounder 独立仓库的 observer 修复已单独拆分到 `JJ704sd/ECGFounder` 分支 `codex/fix-param-observer-current-epoch`，避免混入本仓库提交。
+ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGFounder` 开了 PR #1**（5 commit、+27,782 行、与 master 无冲突），等 maintainer review / 合并。
 
 ## 仓库状态
 
 - 仓库路径：`D:\VS vibe coding files\ecg-annotation-platform`
 - 当前分支：`main`
-- 本地 HEAD：`b334c7d fix(ci): lift to Node 24 and cap V8 heap for unit tests`
+- 本地 HEAD：`1964487 feat(ui): mark demo / non-clinical boundary globally`
 - 远端同步点：`origin/main`
 - 当前状态：本地 `main` 与 `origin/main` 同步，工作区干净。
 - 已合并分支：`codex/continue-ecg-hardening` / `feature/env-config` / `fix/lint-after-merge` / `feature/unit-tests`。
@@ -119,7 +119,8 @@ ECGFounder 独立仓库的 observer 修复已单独拆分到 `JJ704sd/ECGFounder
    `CLAUDE.md` 曾写“Jest”，但 `package.json` 实际使用 Node 内置 test runner。建议同步 README / AGENTS / CLAUDE 中的测试说明，并保持 review 文档随 main 合并更新。
 
 8. ECGFounder 原始工作区仍然很脏。
-   `D:\ECG founder\ECGFounder` 的原始 `master` 仍有本地 ahead 提交、多个修改文件和大量训练产物。**截至 2026-06-06 13:24，外部仓库 `JJ704sd/ECGFounder` 上的 `codex/fix-param-observer-current-epoch` 分支仍未创建对应的 PR**（PR 列表 0 Open / 0 Closed），创建链接是 `https://github.com/JJ704sd/ECGFounder/pull/new/codex/fix-param-observer-current-epoch`，需要 repo owner 手动开。原始工作区仍需后续清点、忽略或拆分提交。
+   `D:\ECG founder\ECGFounder` 的原始 `master` 仍有本地 ahead 提交、多个修改文件和大量训练产物。
+   *2026-06-06 13:44 进展*：PR 已经开到 **上游 `PKUDigitalHealth/ECGFounder` 的 #1**（`https://github.com/PKUDigitalHealth/ECGFounder/pull/1`），5 个 commit / 16 文件 / +27,782 行 / 状态 Open / 0 review / 与 base 无冲突。这部分是 JJ704SD 长期持有 `PKUDigitalHealth:codex/fix-param-observer-current-epoch` 分支的成果。原始工作区仍需后续清点、忽略或拆分提交。
 
 ## 建议下一步
 
