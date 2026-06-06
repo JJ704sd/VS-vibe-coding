@@ -2,6 +2,9 @@
   "name": "ecg-annotation-platform",
   "version": "1.0.0",
   "description": "ECG数据标注与分析平台 - 基于 React + TensorFlow.js",
+  "engines": {
+    "node": ">=22.6.0"
+  },
   "main": "src/index.tsx",
   "scripts": {
     "start": "node scripts/dev.js",
