@@ -140,9 +140,25 @@ module.exports = {
       },
     },
   },
+  // Performance budget. We hard-fail CI on over-budget builds (`hints:
+  // 'error'`) instead of just warning, so a regression that adds another
+  // 200 KiB to the main entrypoint surfaces immediately rather than as a
+  // silent yellow icon.
+  //
+  // The numbers are intentionally generous:
+  //   * main entrypoint       2 500 000 B  (2.5 MiB)
+  //       includes the main bundle + Antd + TensorFlow + Firebase + runtime.
+  //       Antd (~600 KiB) and TensorFlow + Firebase (~1.1 MiB combined) are
+  //       real production costs we cannot drop without rewriting
+  //       firebaseService and the model inference path to use dynamic
+  //       imports; they are tracked as a follow-up in REVIEW.md (risk #6).
+  //   * individual asset      1 500 000 B  (1.5 MiB)
+  //       any single chunk bigger than this is a sign that the splitChunks
+  //       cacheGroups (tensorflow / firebase / antd / echarts) are not doing
+  //       their job and need another look.
   performance: {
-    hints: 'warning',
-    maxEntrypointSize: 1500000,
+    hints: 'error',
+    maxEntrypointSize: 2500000,
     maxAssetSize: 1500000,
   },
 };
