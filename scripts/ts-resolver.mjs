@@ -71,6 +71,9 @@ function transformTypeScript(filePath) {
     return TS_TRANSFORMS.get(filePath);
   }
   const source = readFileSync(filePath, 'utf8');
+  // JSX is only required for .tsx files; pass it through when needed so the
+  // resulting JS is plain ESM that Node can import directly.
+  const isTsx = filePath.endsWith('.tsx');
   const result = ts.transpileModule(source, {
     fileName: filePath,
     compilerOptions: {
@@ -83,6 +86,10 @@ function transformTypeScript(filePath) {
       // Strip type-only imports.
       verbatimModuleSyntax: false,
       isolatedModules: true,
+      // Compile JSX to plain function calls (react/jsx-runtime) so .tsx files
+      // can be loaded by Node without a Babel/TSX loader.
+      jsx: isTsx ? ts.JsxEmit.ReactJSX : undefined,
+      jsxImportSource: isTsx ? 'react' : undefined,
     },
     reportDiagnostics: false,
   });
