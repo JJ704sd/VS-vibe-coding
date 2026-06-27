@@ -12,7 +12,7 @@
     "dev:api": "node mock-api/server.js",
     "build": "webpack --mode production",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
-    "test:unit": "node --import ./scripts/test-setup.mjs --import ./scripts/ts-resolver-register.mjs --test --test-isolation=none --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
+    "test:unit": "node --import ./scripts/test-setup.mjs --import ./scripts/ts-resolver-register.mjs --test --test-isolation=none --test-force-exit --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
     "test:backend": "node scripts/run-backend-tests.js",
     "test": "npm run test:unit",
     "preflight:demo": "node scripts/preflight-demo.js",

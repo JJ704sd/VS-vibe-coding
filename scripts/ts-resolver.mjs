@@ -13,7 +13,17 @@ const ts = require('typescript');
 const EXTENSIONS = ['.ts', '.tsx', '.mjs', '.js', '.json'];
 
 function detectFormat(url) {
-  if (url.endsWith('.ts') || url.endsWith('.tsx')) return 'module-typescript';
+  // .ts files can be handled by Node's built-in strip-types loader (Node 22.6+),
+  // so we hand them the 'module-typescript' format which keeps the fast path.
+  // .tsx files contain JSX that strip-types cannot compile, so we return
+  // 'module' and let our load() hook run ts.transpileModule with the JSX
+  // options enabled. Without this split, .tsx files break with
+  // "SyntaxError: Unexpected token ':'" the moment they use real JSX syntax.
+  // .css files do not exist as JS modules at all — they're consumed by
+  // webpack/css-loader at build time. In a Node test runner we have no CSS
+  // pipeline, so the resolver/loader stubs them out as empty modules.
+  if (url.endsWith('.tsx') || url.endsWith('.css')) return 'module';
+  if (url.endsWith('.ts')) return 'module-typescript';
   if (url.endsWith('.json')) return 'json';
   if (url.endsWith('.cjs')) return 'commonjs';
   return 'module';
@@ -59,7 +69,11 @@ export function resolve(specifier, context, nextResolve) {
   }
   const resolved = tryResolveSpecifier(specifier, context.parentURL);
   if (resolved) {
-    return { url: resolved, shortCircuit: true, format: detectFormat(resolved) };
+    const fmt = detectFormat(resolved);
+    if (process.env.TS_RESOLVER_DEBUG) {
+      console.error(`[ts-resolver] resolve ${specifier} -> ${resolved} (${fmt})`);
+    }
+    return { url: resolved, shortCircuit: true, format: fmt };
   }
   return nextResolve(specifier, context);
 }
@@ -98,6 +112,9 @@ function transformTypeScript(filePath) {
 }
 
 export function load(url, context, nextLoad) {
+  if (process.env.TS_RESOLVER_DEBUG) {
+    console.error(`[ts-resolver] load ${url} (ctx.format=${context?.format})`);
+  }
   if (url.endsWith('.json')) {
     const source = readFileSync(fileURLToPath(url), 'utf8');
     return {
@@ -106,9 +123,22 @@ export function load(url, context, nextLoad) {
       shortCircuit: true,
     };
   }
+  if (url.endsWith('.css')) {
+    // No CSS pipeline in the Node test runner — return an empty module so
+    // `import './index.css'` evaluates to `{ default: {} }` and lets the rest
+    // of the graph keep loading.
+    return {
+      format: 'module',
+      source: 'export default {};',
+      shortCircuit: true,
+    };
+  }
   if (url.endsWith('.ts') || url.endsWith('.tsx')) {
     const filePath = fileURLToPath(url);
     const transformed = transformTypeScript(filePath);
+    if (process.env.TS_RESOLVER_DEBUG) {
+      console.error(`[ts-resolver]   transformed ${filePath}, ${transformed.length} bytes`);
+    }
     return {
       format: 'module',
       source: transformed,
