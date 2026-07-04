@@ -1,54 +1,98 @@
 # Repository Guidelines
 
+> 通用 AI 代理 / 人类贡献者规范 · 最近更新:2026-07-04
+
+## 适用范围
+
+本文件按 [agents.md spec](https://agents.md/) 编写,供任何 AI 编码代理(GitHub Copilot、Cursor、Codex、Aider、Devin、Gemini CLI 等)和人类贡献者共同遵守。
+
+**如果你用的是 Claude Code**,请同时阅读 [`CLAUDE.md`](CLAUDE.md) — 它包含项目架构、命令清单、调试速查、任务路由等 Claude 专属决策框架,与本文档是补充关系而非替代。
+
 ## 项目结构与模块组织
 
-本仓库是 ECG 标注与训练演示平台。前端源码位于 `src/`：页面在 `src/pages/`，共享组件在 `src/components/`，业务服务在 `src/services/`，Redux 状态在 `src/store/`，工具函数在 `src/utils/`，类型在 `src/types/`。静态入口和模板分别在 `public/`、`templates/`。本地病例 mock API 位于 `mock-api/`，ECGFounder Sidecar 位于 `proxy-server/`，项目文档和计划位于 `docs/`、`.planning/`。
+本仓库是 ECG 标注与训练演示平台。
 
-## 构建、测试与本地开发
-
-- `npm start`：同时启动前端开发服务和 mock API。
-- `npm run dev:web`：仅启动 Webpack dev server。
-- `npm run dev:api`：仅启动 `mock-api/server.js`。
-- `npm run build`：生产构建到 `dist/`。
-- `npm run lint`：运行 ESLint。
-- `npm run typecheck`：运行主项目和测试 TypeScript 类型检查。
-- `npm run test:unit` 或 `npm test`：运行 Node 内置 test runner 的前端单测。
-- `npm run test:backend`：运行 `proxy-server/tests` 下的 pytest。
-- `npm run check`：执行 lint、typecheck、前端单测和 build。
-- `npm run preflight:demo -- --live`：检查演示端口、Sidecar、runner 和 observer。
+| 目录 | 用途 |
+|------|------|
+| `src/pages/` | 页面级组件 |
+| `src/components/` | 共享组件 |
+| `src/pages/components/` | 页面内共享展示逻辑 |
+| `src/services/` | 业务服务(API / 解析 / 导出) |
+| `src/store/` | Redux 状态切片 |
+| `src/utils/` | 工具函数 |
+| `src/types/` | TypeScript 类型 |
+| `src/config/` | 运行配置(env.ts 等) |
+| `public/` / `templates/` | 静态入口 / HTML 模板 |
+| `mock-api/` | 本地病例 mock API |
+| `proxy-server/` | ECGFounder Python sidecar |
+| `docs/` | 文档 / specs / plans |
+| `.planning/` | 当前活跃的多步任务跟踪 |
 
 ## 编码风格与命名约定
 
-使用 TypeScript strict mode、ESLint 和 Prettier。保持 2 空格缩进，React 组件使用 `PascalCase`，hooks 使用 `useXxx`，服务模块使用清晰的领域名，如 `trainingApi.ts`。新增页面保持 lazy route 模式；新增服务优先放入 `src/services/`，共享展示逻辑优先放入 `src/pages/components/` 或 `src/components/`。
+- TypeScript strict mode + ESLint + Prettier
+- 2 空格缩进
+- React 组件:`PascalCase`
+- hooks:`useXxx`
+- 服务模块:清晰领域名(如 `trainingApi.ts`, `ecgAssistantApi.ts`)
+- 新增页面保持 lazy route 模式(`React.lazy()` + `Suspense`)
+- 新增服务优先放 `src/services/`,共享展示逻辑优先放 `src/pages/components/` 或 `src/components/`
+- Redux 状态字段含不可序列化数据(如 TF tensor)必须**排除**在序列化之外
 
 ## 测试规范
 
-前端测试文件使用 `*.test.ts`，尽量靠近被测服务或 view model。后端测试位于 `proxy-server/tests/test_*.py`。修复 bug 时优先补回归测试；涉及训练合同、parser、Sidecar API 或关键 UI 数据流时，至少运行相关最小测试，并在合并前运行 `npm run check` 和 `npm run test:backend`。
+- 前端测试:`*.test.ts`,尽量靠近被测服务或 view model
+- 后端测试:`proxy-server/tests/test_*.py`
+- 修复 bug 优先补回归测试
+- 涉及训练合同 / parser / Sidecar API / 关键 UI 数据流时,**至少**运行相关最小测试
+- 合并前跑全量:`npm run check` + `npm run test:backend`
+- 不引入冗余测试(thin wrapper / mock 自指 / 与其他文件 100% 重叠的 → 删)
 
 ## 提交与 PR 规范
 
-Git 历史使用简短 Conventional Commits 风格，例如 `feat: show agent decision summaries`、`fix: handle preflight permission errors`、`docs: update review after main merge`。PR 应说明变更范围、验证命令、演示影响和已知风险；涉及 UI 的改动应附截图或说明可复核页面；涉及 ECGFounder 外部仓库的改动必须单独分支、单独 PR。
+**Commit message**:简短 Conventional Commits 风格,例如:
+
+- `feat: show agent decision summaries`
+- `fix: handle preflight permission errors`
+- `docs: update review after main merge`
+- `refactor: extract ecg lead normalization`
+- `chore: prune redundant test files`
+
+**PR 描述**应说明:
+
+- 变更范围
+- 验证命令
+- 演示影响
+- 已知风险
+- UI 改动附截图或说明可复核页面
+- 涉及 ECGFounder 外部仓改动**必须**单独分支、单独 PR
 
 ## 安全与配置提示
 
-当前 API 地址和 `ECGFOUNDER_BASE` 主要面向本地 demo。不要提交真实病例数据、模型权重、训练缓存或 `outputs/` 大文件。Sidecar 暴露本地训练和 checkpoint 能力，部署到非本机前需限制 CORS、校验路径并增加鉴权。
+- 当前 API 地址和 `ECGFOUNDER_BASE` 主要面向本地 demo
+- **不要**提交真实病例数据、模型权重、训练缓存或 `outputs/` 大文件
+- Sidecar 暴露本地训练和 checkpoint 能力,部署到非本机前需:
+  - 限制 CORS
+  - 校验路径
+  - 增加鉴权
 
 ## 环境变量与运行配置
 
-Web 前端运行配置由 `src/config/env.ts` 统一暴露，编译时通过 `webpack.DefinePlugin` 把 `process.env.X` 替换为字面量。开发环境由 `dotenv-webpack` 从仓库根 `.env` 加载；生产环境只读 shell 环境（`path: false`）。缺省值写在 `src/config/env.ts` 的 `fromEnv` 第二个参数里，确保 `.env` 缺失或 Node 单测直接读 `process.env` 时仍能拿到 demo 用 localhost。
+环境变量机制、关键变量表、新增端点步骤详见 [`CLAUDE.md` § 环境变量与运行配置](CLAUDE.md#环境变量与运行配置)。
 
-| 变量 | 用途 |
-|------|------|
-| `CLINIC_API_BASE_URL` | 病例/仪表盘后端（`clinicApi.ts`） |
-| `TRAINING_API_BASE_URL` | 训练调度后端（`trainingApi.ts`） |
-| `ASSISTANT_API_BASE_URL` | 助手/RAG 后端（`ecgAssistantApi.ts`） |
-| `ANALYZE` | `true` 时启用 `webpack-bundle-analyzer` 报告 |
-| `REACT_APP_FIREBASE_*` | Firebase 初始化（`firebaseService.ts`） |
-| `REACT_APP_MINIMAX_API_ENDPOINT` | Minimax 直连端点（生产请走后端代理） |
+简要原则:
 
-新增端点的标准做法：
+- 唯一配置源:`src/config/env.ts`
+- 不要直接 `process.env.X || fallback`(绕过兜底链)
+- webpack `DefinePlugin` 把 `process.env.X` 替换成编译期常量
+- dev 读仓库根 `.env`;prod 只读 shell 环境
 
-1. `src/config/env.ts` 新增 `fromEnv('XXX', 'fallback')` 导出常量。
-2. 两个 webpack 配置的 `DefinePlugin` 块里加 `process.env.XXX` 的映射。
-3. `.env.example` 同步补一行。
-4. 在 service 中 `import { XXX } from '../config/env'`，**不要**直接 `process.env.XXX || ...`。
+## 必读文档(按需)
+
+- [`CLAUDE.md`](CLAUDE.md) — Claude Code 专属指令(架构、命令、调试速查、任务路由)
+- `SPEC.md` — 项目规格
+- `docs/superpowers/specs/` — 各子模块详细设计
+- `docs/superpowers/plans/` — 历史实施计划
+- `.planning/` — 当前活跃任务跟踪
+- `CHANGELOG.md` — 变更记录
+- `README.md` — 仓库入口
