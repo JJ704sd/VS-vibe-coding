@@ -938,6 +938,7 @@ const AnnotationStudio: React.FC = () => {
               signalQuality={signalQuality}
               annotationStats={annotationStats}
               inferenceResults={inferenceResults}
+              isUsingMockInference={modelService.isUsingMockInference()}
             />
 
             <AnnotationList annotations={annotations} totalCount={annotationStats.total} />

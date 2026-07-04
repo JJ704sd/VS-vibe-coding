@@ -14,6 +14,14 @@ interface SignalMetricsProps {
   signalQuality: number;
   annotationStats: AnnotationStats;
   inferenceResults: ModelPrediction[];
+  /**
+   * True when ModelService fell back to the heuristic mock predictor. When
+   * set, the AI results Card surfaces a MOCK chip next to its title so the
+   * user can never mistake a heuristic std/mean/amplitude output for a real
+   * TF.js model diagnosis. Defaults to false so existing call sites and
+   * tests continue to render the same shape.
+   */
+  isUsingMockInference?: boolean;
 }
 
 const SignalMetrics: React.FC<SignalMetricsProps> = ({
@@ -21,6 +29,7 @@ const SignalMetrics: React.FC<SignalMetricsProps> = ({
   signalQuality,
   annotationStats,
   inferenceResults,
+  isUsingMockInference = false,
 }) => {
   if (leads.length === 0) {
     return (
@@ -62,7 +71,22 @@ const SignalMetrics: React.FC<SignalMetricsProps> = ({
         </Space>
       </Card>
 
-      <Card className="section-card" title="AI 诊断结果" extra={<Tag color="magenta">Results</Tag>}>
+      <Card
+        className="section-card"
+        title="AI 诊断结果"
+        extra={
+          <Space size={4}>
+            {isUsingMockInference && (
+              // The MOCK chip is the visual contract for BUG-2026-07-04-R-02:
+              // whenever inference results on screen come from the heuristic
+              // fallback (no real TF.js model), the user sees this chip. Tests
+              // assert its presence by string match ("MOCK").
+              <Tag color="orange" data-testid="mock-inference-chip">MOCK</Tag>
+            )}
+            <Tag color="magenta">Results</Tag>
+          </Space>
+        }
+      >
         {inferenceResults.length > 0 ? (
           <List
             dataSource={inferenceResults}
