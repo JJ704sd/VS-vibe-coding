@@ -40,11 +40,17 @@
 
 必须审慎对待的缺口：
 
-- `public/models/ecg-classifier/` 当前只有模型放置说明，没有 `model.json` 或权重 shard。真实“上海 ECGFounder 模型”尚未由仓库文件证明。
+- `public/models/ecg-classifier/` 当前只有模型放置说明，没有 `model.json` 或权重 shard。真实"上海 ECGFounder 模型"尚未由仓库文件证明。
 - `src/workers/inference.worker.ts` 直接按 URL 加载模型，没有 Worker 内部 IndexedDB 缓存回退。
 - `src/hooks/useModelInference.ts` 默认 `useWorker=true`，Worker 失败后才尝试主线程缓存；需要确认业务是否使用该 hook，以及离线场景下是否符合预期。
 - 当前 smoke 测试不等于端到端推理 + 标注回归验证。
 - `modelService` 的 mock fallback 对演示友好，但也可能掩盖真实模型路径、模型 shape 或缓存 BUG。
+
+> **§3 审计后进展（2026-07-04 同日 closeout）**：
+> - **已修**：`mock fallback` 掩盖真实模型输出的两条 P0（详见 §7）：`10df188`（R-01）`diagnosis.source` 三态标记 + `180be1e`（R-02）SignalMetrics 持久 `MOCK` chip。
+> - **已修**：`46dc5d1`（C-01..C-05）把 Redux 做成标注重复单一 source of truth，导入新记录清空旧标注 + Toolbar 暴露全 7 种按钮 + Fabric 对象从 Redux 派生。
+> - **已升级 smoke**：`acbf4f0` + `6c7387e` 接入 happy-dom e2e 基础设施，`src/__tests__/annotationWorkflow.test.tsx` 覆盖导入 → 加载模型 → 标注 → 删除 → 导出主链路（`npm run test:unit` 现 109/109 pass）。
+> - **未修（仍属 P1）**：`public/models/ecg-classifier/model.json` 缺失、`inference.worker.ts` Worker 内 IndexedDB 缓存缺失、`useModelInference` 主线程/Worker 缓存路径仍未统一；这些是离线能力与真实模型接入的硬阻塞，不在本轮 closeout 范围。
 
 ## 4. P0 BUG 审核清单
 
@@ -177,8 +183,6 @@ npm run build
 ## 7. BUG 修复记录
 
 > 本节按时间倒序记录本轮已修复的 P0/P1 BUG。每条都给出证据路径、最小修复、回归测试与验证命令。
-
-### BUG-2026-07-04-1
 
 ### BUG-2026-07-04-1
 

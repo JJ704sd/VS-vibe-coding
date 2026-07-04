@@ -6,12 +6,112 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The 2026-07-04 P0 audit + Canvas closeout round. Eight commits: one docs
+rewrite, one test infrastructure scaffold, one boundary-case test, two
+follow-up commits already shipped in 0.2.0 (kept here for traceability),
+two P0 bug fixes, and one audit closeout doc.
+
+### Added
+- **Canvas coordinate invariant** (`46dc5d1 refactor(canvas)`): the shared
+  constant `ECG_CANVAS_VIEW_WIDTH` lives in
+  `src/components/Canvas/constants.ts`; ECGCanvas default width and the
+  auto R-peak position calculation both consume it so the literal `1200`
+  no longer drifts between modules.
+- **Happy-DOM e2e test scaffolding** (`acbf4f0 chore(test)` + `6c7387e
+  chore(test)`): happy-dom is wired into the Node test runner so UI
+  rendering assertions can run without a real browser. `npm run test:unit`
+  now also covers `src/__tests__/annotationWorkflow.test.tsx` (import →
+  load model → annotate → delete → export).
+- **P0 audit documents** (`c487669 docs(audit)`):
+  - `AUDIT-2026-07-04-model-canvas.md` — five-axis risk register
+    (real model / cache / mock fallback / demo data / lightweight parser)
+    with R-01..R-25 entries.
+  - `docs/superpowers/plans/2026-07-04-canvas-annotation-audit.md` —
+    Canvas annotation chain review with C-01..C-07 entries.
+  - `docs/superpowers/plans/2026-07-04-bug-audit-and-closeout-checklist.md`
+    — top-level checklist + per-BUG records.
+
 ### Changed
-- `webpack.config.js`: lifted performance budget to `maxEntrypointSize: 2 500 000`
-  (2.5 MiB) and `maxAssetSize: 1 500 000` (1.5 MiB); flipped `hints` from
+- **`webpack.config.js`** (`8762264 chore(build)`, kept here for trace):
+  lifted performance budget to `maxEntrypointSize: 2 500 000` (2.5 MiB)
+  and `maxAssetSize: 1 500 000` (1.5 MiB); flipped `hints` from
   `'warning'` to `'error'` so any future bundle regression surfaces as a CI
-  failure rather than a yellow icon. Rationale + per-chunk breakdown lives
-  inline in the file.
+  failure rather than a yellow icon.
+- **`CLAUDE.md` / `AGENTS.md`** (`099f594 docs`): rewritten to remove
+  duplication. CLAUDE.md now owns task routing, command cheatsheet,
+  debugging cookbook, and the env-vars single source of truth. AGENTS.md
+  owns generic contributor rules (project layout, coding style, testing,
+  commit / PR, security). Both files headlined `最近更新:2026-07-04`.
+- **`REVIEW.md`** (`c487669`): added a `2026-07-04 P0 audit + canvas
+  closeout round` section, moved prior `2026-06-06 hardening round`
+  description into a comparative block, retagged risk #1 / #6 / #7 as
+  closed, demoted risk #5 to partially mitigated, kept risk #8 (ECGFounder
+  external PR) unchanged.
+
+### Fixed
+- **Cross-record annotation contamination (C-01)** (`46dc5d1`):
+  `AnnotationStudio.applyImportedLeads` now dispatches
+  `setAnnotations([])` so importing a new record drops stale annotation
+  circles from the previous record.
+- **AnnotationToolbar missing ST / U buttons (C-03)** (`46dc5d1`):
+  the UI now exposes all seven `Annotation['type']` buttons
+  (`P` / `Q` / `R` / `S` / `T` / `ST` / `U`) instead of only three.
+- **Annotation `x` field inconsistency (C-04)** (`46dc5d1`): both the
+  double-click handler and the auto R-peak handler now write
+  `position` and `x` together; `renderAnnotationObjects` reads
+  `annotation.x ?? annotation.position` for backwards compatibility.
+- **Redux / Fabric dual-track annotations (C-05)** (`46dc5d1`):
+  `ECGCanvas.handleAddAnnotation` and
+  `ECGCanvas.handleDeleteSelectedAnnotation` now only dispatch. A new
+  `useEffect([annotations])` + `renderAnnotationObjects` derives Fabric
+  objects from Redux so the two state tracks never desync.
+- **`diagnosis.source` provenance (BUG-2026-07-04-1 / R-01, P0)**
+  (`10df188 fix(export)`): new pure helper
+  `src/utils/buildDiagnosis.ts` resolves
+  `(inferenceResults, isUsingMockInference, heartRate)` into
+  `{ label, confidence, source: 'real' | 'mock' | 'unavailable' }`.
+  `ECGRecord.diagnosis` carries an optional `source` field, JSON exports
+  pass it through verbatim, and CSV exports write a
+  `Source,<real|mock|unavailable>` row immediately after the `Confidence`
+  row (omitted when `source` is absent so older fixtures stay intact).
+- **Persistent MOCK chip on AI results (BUG-2026-07-04-2 / R-02, P0)**
+  (`180be1e fix(ui)`): `SignalMetrics` now takes an optional
+  `isUsingMockInference?: boolean` prop and renders an orange
+  `MOCK` tag with `data-testid="mock-inference-chip"` next to the
+  existing `Results` tag in the `AI 诊断结果` card's `extra` area.
+  `AnnotationStudio` passes `modelService.isUsingMockInference()` so the
+  chip follows the model's actual state instead of the post-load toast
+  that times out after a few seconds.
+
+### Test
+- **`src/utils/buildDiagnosis.test.ts`** (`10df188`, 6 tests):
+  real / mock / top-prediction / HR-fallback / empty + mock-flag /
+  unavailable branches.
+- **`src/utils/exportUtils.test.ts`** (`10df188`, +7 tests): JSON
+  `source` passthrough (real / mock / unavailable) + CSV `Source` row
+  behaviour + backwards-compat when `source` is absent.
+- **`src/pages/components/SignalMetrics.test.tsx`** (`180be1e`, 5 tests):
+  MOCK chip presence / absence / default / result-list regression /
+  `Results` tag preserved.
+- **`src/store/ecgSlice.test.ts`** (`46dc5d1`, 9 tests): annotation
+  lifecycle (`setAnnotations([])` / `addAnnotation` /
+  `removeAnnotation` / `clearECG`).
+- **`src/utils/signalProcessor.findRPeaks.test.ts`** (`46dc5d1`, 7 tests):
+  R-peak detection incl. `ECG_CANVAS_VIEW_WIDTH` integration + boundary
+  pins (e.g. `threshold=0` returns no peaks).
+- **`src/__tests__/annotationWorkflow.test.tsx`** (`46dc5d1`): e2e
+  smoke for the annotation workflow under happy-dom.
+
+### Verification
+- `npm run lint` — 0 errors
+- `npm run typecheck` — 0 errors
+- `npm run test:unit` — **109/109 pass** (新增 36,既有 73)
+- `npm run build` — webpack compiled successfully, no size warnings
+  (`performance.hints: 'error'` enforces 2.5 MiB entrypoint budget)
+- `npm run check` — full gate green
+- `node scripts/verify-canvas-coords.mjs` — 9/9 Canvas-coordinate
+  invariants hold
+- `git diff --check` — 0 exit
 
 ## [0.2.0] - 2026-06-06
 

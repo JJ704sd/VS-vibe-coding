@@ -7,7 +7,7 @@ Web-based ECG annotation and analysis demo built with React, TypeScript, Ant Des
 - Import ECG data from `JSON`, `DICOM`, `HL7`, and `WFDB` files
 - Import MIT-BIH style paired records from `.hea` + `.dat`
 - Pull JSON data from a GitHub Raw URL
-- Switch between `P`, `R`, and `T` annotations on the waveform canvas
+- Switch between `P`, `Q`, `R`, `S`, `T`, `ST`, `U` annotations on the waveform canvas (full `Annotation['type']` union; UI exposes all 7 buttons)
 - Run local AI inference or optional Minimax-assisted analysis
 - Export the current record as `JSON` or `CSV`
 
@@ -46,12 +46,12 @@ This repository is currently optimized for demo and workflow validation. Some sc
 This project is a **research preview**, not a medical device.
 
 - **Patient data** is sourced from a 20-record PTB-XL backup embedded in `src/data/mockClinic.ts`. Real deployments must swap this for a clinical data source behind the same `clinicApi.ts` interface.
-- **AI inference** in `modelService.ts` falls back to `mockPredict(...)` when no TF.js LayersModel is loaded. The accuracy numbers shown on the `AI Models` page are mock; the underlying model URL is `/models/ecg-classifier/model.json` and must be replaced with a validated `.pth` / TF.js bundle.
+- **AI inference** in `modelService.ts` falls back to `mockPredict(...)` when no TF.js LayersModel is loaded. The accuracy numbers shown on the `AI Models` page are mock; the underlying model URL is `/models/ecg-classifier/model.json` and must be replaced with a validated `.pth` / TF.js bundle. Exported JSON / CSV carry `diagnosis.source: 'real' | 'mock' | 'unavailable'` (see `src/utils/buildDiagnosis.ts`) so downstream consumers can tell heuristic fallback outputs from real TF.js runs.
 - **Sidecar** (`proxy-server/main.py`) is bound to `localhost` and reads from the local `D:/ECG founder/ECGFounder` training workspace by default; the path is overridable via `ECGFOUNDER_BASE`.
 - **Assistant** (memory + RAG) writes to `proxy-server/assistant_memory.json`; nothing leaves the machine.
 - **CORS** for the sidecar is restricted to the local dev origins by default (`SIDECAR_ALLOW_ORIGINS` env var).
 
-In the UI, every page surfaces a yellow **Non-clinical preview** banner at the top, the sidebar carries a `Demo / Mock` mode tag, and the `AI Models` page marks each entry with an orange `MOCK` chip.
+In the UI, every page surfaces a yellow **Non-clinical preview** banner at the top (`src/components/DemoBanner.tsx`), the sidebar carries a `Demo / Mock` mode tag, the `AI Models` page marks each entry with an orange `MOCK` chip, and the `Annotation Studio` AI results card now renders a persistent orange `MOCK` chip whenever `modelService.isUsingMockInference()` is true (so the heuristic-vs-real boundary survives after the post-load toast disappears).
 
 ## Project Structure
 

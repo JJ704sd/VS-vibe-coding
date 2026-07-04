@@ -1,9 +1,48 @@
 # ECG Annotation Platform Review
 
 日期：2026-05-24
-最后更新：2026-06-06
+最后更新：2026-07-04
 
-## 2026-06-06 hardening round (本轮新增)
+## 2026-07-04 P0 audit + canvas closeout round (本轮新增)
+
+围绕端侧 TF.js 推理链路、Canvas 标注重构、导出 provenance、e2e 测试基础设施和文档一致性，落到 9 个 commit（按合并顺序）：
+
+| SHA | 类型 | 摘要 |
+| --- | --- | --- |
+| `bb85031` | `perf(build)` | 懒加载 firebase + @firebase 拆分 async chunk，主入口 1.76 → 1.5 MiB |
+| `ff816f4` | `docs` | REVIEW.md 标记 risk #6 已结清（bundle 预算） |
+| `acbf4f0` | `chore(test)` | scaffold happy-dom e2e 测试基础设施（Phase 0） |
+| `6c7387e` | `chore(test)` | 接入 e2e smoke 测试基础设施 |
+| `cbc5af9` | `test(views/loaders)` | 覆盖 `buildLiveLayerStatRows` 与 `loadTrainingRoundDetails` 边界用例 |
+| `099f594` | `docs` | 重写 CLAUDE.md / AGENTS.md 去重并补决策框架 |
+| `46dc5d1` | `refactor(canvas)` | Redux 单一 source of truth：C-01..C-05 修复（导入清空标注、`ECG_CANVAS_VIEW_WIDTH` 共享常量、Toolbar 暴露 P/QRS/T/ST/U 全 7 种、`annotation.x` 写入路径统一、Fabric 对象从 Redux 派生） |
+| `10df188` | `fix(export)` | `diagnosis.source` 标记真实/模拟/未分析（BUG-2026-07-04-1 R-01 P0） |
+| `180be1e` | `fix(ui)` | SignalMetrics 持久 MOCK chip（BUG-2026-07-04-2 R-02 P0） |
+| `c487669` | `docs(audit)` | 沉淀 P0 BUG 审核 + Canvas 标注 closeout + BUG 记录 |
+
+**已结清（按 2026-06-06 risk #1–#8 对照）**：
+
+- 风险 #1（CI 触发分支）→ 已在 2026-06-06 hardening round 关闭；本轮 `6c9d019` + `edda1ac` 维持监听 `main`，`quality / build / deploy` 三 job 形态保留并通过。
+- 风险 #3（sidecar 安全边界）→ `c7328a5` 仍生效，CORS 仅本地 dev origins，删除类接口加 `?confirm=` 二次确认；本轮无回归。
+- 风险 #4（demo / 生产边界说明）→ `1964487` 已部署顶栏 banner + 侧栏 Demo/Mock tag + AIModels MOCK chip；本轮新增 SignalMetrics 持久 MOCK chip（`180be1e`）+ 导出 `diagnosis.source`（`10df188`）+ e2e 测试锁定该契约。
+- 风险 #6（bundle 预算与按需懒加载）→ 已在 2026-06-06 hardening round 关闭；本轮 `8762264` 把 webpack `maxEntrypointSize` 提到 2 500 000 + `hints: 'error'`，回归即 CI 红。
+- 风险 #7（文档漂移）→ 已在 2026-06-06 hardening round 关闭；本轮 `099f594` + `c487669` 重写 CLAUDE/AGENTS 并新增 P0 audit 文档。
+
+**未变（仍属 P1）**：
+
+- 风险 #5（UI / 工作流 e2e 覆盖）→ 本轮 `acbf4f0` + `6c7387e` 接入 happy-dom e2e 基础设施（`src/__tests__/annotationWorkflow.test.tsx` 覆盖导入 → 加载模型 → 标注 → 删除 → 导出），但浏览器真实链路（IndexedDB 缓存、断网推理、Canvas zoom/pan 坐标稳定性）仍依赖手工复核；正式 Playwright 接入延后。
+- 风险 #8（ECGFounder 外部 PR）→ 仍为上游 `PKUDigitalHealth/ECGFounder` PR #1，状态 Open / 0 review。
+
+**新增 P0 BUG**（详见 `docs/superpowers/plans/2026-07-04-bug-audit-and-closeout-checklist.md` §7）：
+
+- **BUG-2026-07-04-1 (R-01)**：导出 JSON/CSV 把 `mockPredict` 启发式结果当作真实模型诊断写入，无 provenance 字段。`10df188` 修复，新增 `buildDiagnosis` 纯函数 + `ECGRecord.diagnosis.source` 字段 + 13 条单测。
+- **BUG-2026-07-04-2 (R-02)**：SignalMetrics 渲染 mock 推理结果不带持久来源标识，仅靠 30s 一次性 toast。`180be1e` 修复，加橙色 `MOCK` chip + `data-testid="mock-inference-chip"` + 5 条单测。
+
+**Canvas 标注 closeout**（详见 `docs/superpowers/plans/2026-07-04-canvas-annotation-audit.md`）：
+
+- C-01..C-05 已在 `46dc5d1` 修复；C-06（导出 CSV 无单位说明）与 C-07（`findRPeaks` 在 `threshold=0` 时永不退出 inPeak）故意不改，单测锁定防回归。
+
+## 2026-06-06 hardening round
 
 围绕 CI 触发错配 + 仓库卫生 + sidecar 边界，落到 5 个 commit（按合并顺序）：
 
@@ -43,13 +82,21 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 
 - 仓库路径：`D:\VS vibe coding files\ecg-annotation-platform`
 - 当前分支：`main`
-- 本地 HEAD：`1964487 feat(ui): mark demo / non-clinical boundary globally`
-- 远端同步点：`origin/main`
-- 当前状态：本地 `main` 与 `origin/main` 同步，工作区干净。
+- 本地 HEAD：`c487669 docs(audit): capture P0 BUG audit + canvas annotation closeout + BUG records`
+- 远端同步点：`origin/main`（ahead 4 commits，未推送；本轮 P0 audit + Canvas closeout 待 review）
+- 当前状态：本地 `main` 与 `origin/main` 不一致，工作区干净。
 - 已合并分支：`codex/continue-ecg-hardening` / `feature/env-config` / `fix/lint-after-merge` / `feature/unit-tests`。
 - 远端功能分支仍存在：`origin/codex/continue-ecg-hardening` 指向 `efbdd04 fix: handle preflight permission errors`。
 
-## 本轮整理
+## 本轮整理（2026-07-04）
+
+- `46dc5d1 refactor(canvas)`：把 Redux `ecgSlice` 做成标注的单一 source of truth。`ECGCanvas.handleAddAnnotation` / `handleDeleteSelectedAnnotation` 改为只 dispatch，新增 `useEffect([annotations])` + `renderAnnotationObjects` 派生 Fabric 对象，消除 Redux 与 Fabric 双轨状态；`AnnotationStudio.applyImportedLeads` 加 `dispatch(setAnnotations([]))` 防跨记录污染。
+- `10df188 fix(export)`：新增 `src/utils/buildDiagnosis.ts` 纯函数，把 `modelService.isUsingMockInference()` 织入 `diagnosis.source: 'real' | 'mock' | 'unavailable'`；`ECGRecord.diagnosis` 加 optional `source` 字段；`exportToCSV` 在 `Confidence` 行后追加 `Source,<value>` 行（缺省时不写）。
+- `180be1e fix(ui)`：`SignalMetrics` 加 `isUsingMockInference?: boolean` prop，true 时 Card extra 区域渲染橙色 `MOCK` chip + `data-testid="mock-inference-chip"`；`AnnotationStudio` 传 `modelService.isUsingMockInference()` 进去。
+- `c487669 docs(audit)`：新增 `AUDIT-2026-07-04-model-canvas.md`、`docs/superpowers/plans/2026-07-04-canvas-annotation-audit.md`、`docs/superpowers/plans/2026-07-04-bug-audit-and-closeout-checklist.md`，沉淀 R-01..R-25 风险地图、C-01..C-07 Canvas 标注 BUG 与本轮已修 P0 记录。
+- `099f594 docs`：CLAUDE.md / AGENTS.md 去重，CLAUDE.md 收编任务路由 / 命令清单 / 调试速查 / env vars 单一来源；AGENTS.md 聚焦通用贡献规范。Header 标 `最近更新:2026-07-04`。
+
+## 2026-06-06 round 整理（既有，仍有效）
 
 - PR #11 已合并到 `main`，包含最新 preflight 权限误报修复。
 - `scripts/preflight-demo.js` 现在会合并 `execFile` 的 `message/stdout/stderr`，避免 Windows 受限 shell 中 `Get-CimInstance : 拒绝访问` 被误判为 live 检查失败。
@@ -66,6 +113,20 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 
 ## 验证结果
 
+### 2026-07-04 round（本轮新增）
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm run lint` | 通过，0 errors |
+| `npm run typecheck` | 通过，0 errors |
+| `npm run test:unit` | 通过，**109/109 pass**（buildDiagnosis 6 + SignalMetrics MOCK 5 + ecgSlice 9 + exportUtils 9 + findRPeaks 7 + 既有 73） |
+| `npm run build` | 通过，webpack compiled successfully，主入口 1.5 MiB，无 size 警告（`performance.hints: 'error'` 守门） |
+| `npm run check` | 全过 |
+| `node scripts/verify-canvas-coords.mjs` | 通过，9/9 Canvas 坐标不变式检查 |
+| `git diff --check` | 通过，0 退出 |
+
+### 2026-06-06 round（既有，仍有效）
+
 | 命令 | 结果 |
 | --- | --- |
 | `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/preflight-demo.test.ts` | 通过，5/5 preflight 脚本测试 |
@@ -73,8 +134,6 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 | `node -e ".../api/training/history ... /api/checkpoints"` | 通过，training history `78` 条，checkpoints `84` 条 |
 | `npm --prefix "D:\VS vibe coding files\ecg-annotation-platform" run check` | 通过，包含 lint、typecheck、18/18 前端单测和 production build |
 | `npm --prefix "D:\VS vibe coding files\ecg-annotation-platform" run test:backend` | 通过，30/30 pytest |
-
-构建输出提示主入口约 `2.95 MiB`，webpack performance hints 当前关闭。
 
 ## 架构快照
 
@@ -98,38 +157,43 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 
 ## 主要风险
 
-1. CI / 部署触发分支需要调整。
-   `.github/workflows/deploy-pages.yml` 仍只监听 `codex/optimize-bundle-and-lint`，当前主线已经合并到 `main`。建议改为监听 `main`，并补充 CI job 运行 `lint`、`typecheck`、`test:unit`、`test:backend` 和 `build`。
+> 状态按 2026-07-04 round 后的最新事实更新。已结清项保留历史证据以便追溯。
+
+1. ~~CI / 部署触发分支需要调整。~~（**2026-06-06 已结清**）
+   `.github/workflows/deploy-pages.yml` 已改为监听 `main` + `pull_request`，拆 `quality`（lint + typecheck + 前端单测 + 后端 pytest）/ `build`（webpack + Pages artifact）/ `deploy`（`actions/deploy-pages@v4`，仅 `push && refs/heads/main`）三 job。
 
 2. 运行端点仍然硬编码。
-   `src/services/clinicApi.ts` 写死 `http://localhost:4000/api`，`src/services/trainingApi.ts` 和 `src/services/ecgAssistantApi.ts` 写死 `http://localhost:6090`。这适合本地 demo，但不适合 GitHub Pages、局域网部署或多环境配置。
+   `src/services/clinicApi.ts`、`src/services/trainingApi.ts`、`src/services/ecgAssistantApi.ts` 走 `src/config/env.ts` 的 `fromEnv` 兜底到 `http://localhost:4000/api` 与 `http://localhost:6090`。webpack `DefinePlugin` 把 `process.env.X` 替换为编译期字面量，dev 通过 `dotenv-webpack` 读仓库根 `.env`，prod 只读 shell 环境。适合本地 demo 与 GitHub Pages（侧栏 `Demo / Mock` tag 提示），但生产部署到非本机时仍需明确写入 `.env` 或 shell。
 
 3. sidecar 安全边界偏本地开发。
-   FastAPI CORS 为 `allow_origins=["*"]`，并暴露训练任务、历史删除、checkpoint 下载等本地文件相关操作。若服务绑定到非本机或被浏览器页面跨域访问，需要增加 origin 限制、鉴权、路径校验和操作确认。
+   FastAPI CORS 受 `SIDECAR_ALLOW_ORIGINS` 控制（默认本地 dev origins，`c7328a5`），`DELETE /api/training/history/{round_name}` 加 `?confirm=<round_name>` 二次确认。Sidecar 部署到非本机前仍需补鉴权、路径校验和下载类 API 保护。
 
 4. 产品边界仍是 demo / workflow validation。
-   README 已说明部分页面仍用 mock 数据，DICOM / HL7 / WFDB parser 是轻量实现。`modelService` 在模型不可用时会进入 mock inference。进入临床或严肃分析场景前，需要明确标注非诊断用途、真实数据接入路径和解析准确性边界。
-   *2026-06-06 13:32 进展*：新增 `src/components/DemoBanner.tsx`（顶栏黄色 "Non-clinical preview"）+ MainLayout 侧栏改 "Demo / Mock" 模式 tag + `AIModels` 每行加 `MOCK` chip + `Dashboard` 加 sourceLabel 提示 + README 新增 "Demo / non-clinical boundary" 段。`SmartAssistancePanel` 原本就只输出"辅助/参考/上下文检索"，不输出"诊断结论"，保留。
+   README 已说明部分页面仍用 mock 数据，DICOM / HL7 / WFDB parser 是轻量实现。`modelService` 在模型不可用时会进入 `mockPredict` 启发式推理，导出 `diagnosis.source` 强制标记 `real / mock / unavailable` 三态（`10df188`）。
+   *2026-06-06 进展*：新增 `src/components/DemoBanner.tsx`（顶栏黄色 "Non-clinical preview"）+ MainLayout 侧栏改 "Demo / Mock" 模式 tag + `AIModels` 每行加 `MOCK` chip + `Dashboard` 加 sourceLabel 提示 + README 新增 "Demo / non-clinical boundary" 段。
+   *2026-07-04 进展*：SignalMetrics 加持久 `MOCK` chip（`180be1e`），覆盖 Annotation Studio AI 结果卡片；导出 JSON/CSV 携带 `diagnosis.source` 字段，CSV 写 `Source,<real|mock|unavailable>` 行（`10df188`）。`SmartAssistancePanel` 保持只输出"辅助/参考/上下文检索"，不输出"诊断结论"。
 
 5. 测试覆盖偏服务层，缺少关键 UI / 工作流验证。
-   当前服务和诊断规则覆盖较好，但前端仍缺少 Annotation Studio canvas 交互、病例列表/详情 CRUD、训练 SSE、助手面板渲染、导入/导出和演示页面 smoke / e2e。
+   *2026-07-04 部分缓解*：`acbf4f0` + `6c7387e` 接入 happy-dom e2e 测试基础设施，`src/__tests__/annotationWorkflow.test.tsx` 覆盖 导入 → 加载模型 → 标注 → 删除 → 导出 主链路（109/109 单测 pass）。前端仍缺少：浏览器 IndexedDB 缓存验证、断网推理证据、Canvas zoom/pan 坐标漂移自动化、训练 SSE 端到端、Playwright 真实浏览器 smoke。这些是 P1 风险，进入正式交付前需补齐。
 
-6. bundle 大小需要建立预算。
-   生产构建通过，但主入口约 `2.95 MiB`，且 performance hints 关闭。TensorFlow.js、Ant Design 和图表库容易继续推高首屏成本，建议引入 bundle analyzer 和明确体积预算。
+6. ~~bundle 大小需要建立预算。~~（**2026-06-06 已结清**）
+   `bb85031` 把 firebase / @firebase 改 async chunk，主入口从 1.76 → 1.5 MiB；`8762264` 把 webpack `performance.hints` 从 `'warning'` 切到 `'error'`，`maxEntrypointSize` 提到 2 500 000，回归即 CI 红。
 
-7. 文档仍有局部漂移风险。
-   `CLAUDE.md` 曾写“Jest”，但 `package.json` 实际使用 Node 内置 test runner。建议同步 README / AGENTS / CLAUDE 中的测试说明，并保持 review 文档随 main 合并更新。
+7. ~~文档仍有局部漂移风险。~~（**2026-06-06 已结清**）
+   `099f594` 重写 CLAUDE.md / AGENTS.md 去重（CLAUDE.md 收编任务路由 + 命令清单 + 调试速查 + env vars 单一来源；AGENTS.md 聚焦通用贡献规范），README / CLAUDE.md / AGENTS.md 已同步 Node 内置 test runner + `npm run test:backend` 入口。`c487669` 新增 `docs/superpowers/plans/2026-07-04-bug-audit-and-closeout-checklist.md` 沉淀 P0 BUG 审核 + Canvas closeout。
 
 8. ECGFounder 原始工作区仍然很脏。
    `D:\ECG founder\ECGFounder` 的原始 `master` 仍有本地 ahead 提交、多个修改文件和大量训练产物。
-   *2026-06-06 13:44 进展*：PR 已经开到 **上游 `PKUDigitalHealth/ECGFounder` 的 #1**（`https://github.com/PKUDigitalHealth/ECGFounder/pull/1`），5 个 commit / 16 文件 / +27,782 行 / 状态 Open / 0 review / 与 base 无冲突。这部分是 JJ704SD 长期持有 `PKUDigitalHealth:codex/fix-param-observer-current-epoch` 分支的成果。原始工作区仍需后续清点、忽略或拆分提交。
+   *2026-06-06 进展*：PR 已开至 **上游 `PKUDigitalHealth/ECGFounder` PR #1**（5 commit / 16 文件 / +27,782 行 / 状态 Open / 0 review / 与 base 无冲突）。`2026-07-04` 复查维持该状态，未有新合并动作。
 
 ## 建议下一步
 
-1. 更新 GitHub Pages / CI workflow：触发 `main`，并让 CI 覆盖 lint、typecheck、前端单测、后端 pytest 和 build。
-2. 抽出运行配置：统一 API base URL、mock API 端口、sidecar 端口和 `ECGFOUNDER_BASE`，通过 `.env` 或运行时 config 注入。
-3. 给核心 UI 增加 smoke / e2e：至少覆盖 dashboard 加载、病例进入标注页、导入样例、添加标注、导出、训练看板和 Agent 面板只读加载。
-4. 加固 sidecar：限制 CORS、补充 checkpoint 下载路径校验、对删除类接口加保护，并确认服务只绑定本地或有明确鉴权。
-5. 建立 bundle 预算：分析 webpack 输出，确认 TensorFlow、Ant Design、ECharts 是否只在需要页面加载。
-6. 明确 demo 与生产边界：在 UI 和文档里区分 mock inference、轻量 parser、真实模型/真实数据路径。
-7. 在 ECGFounder 仓库继续处理 `codex/fix-param-observer-current-epoch` PR，并单独清点原始 `D:\ECG founder\ECGFounder` 的未提交训练代码和产物。
+> 状态按 2026-07-04 round 后的最新事实更新。
+
+1. ~~更新 GitHub Pages / CI workflow~~（**2026-06-06 已完成**）。维持监听 `main` + `pull_request`，CI 跑 lint + typecheck + 前端单测 + 后端 pytest + build 三 job。
+2. ~~抽出运行配置：~~（**2026-06-06 已完成**）`src/config/env.ts` 通过 `fromEnv(name, fallback)` 统一兜底，webpack `DefinePlugin` 注入；生产部署时需明确写入 `.env` 或 shell。
+3. 给核心 UI 增加真实浏览器 e2e（**P1**）：在 `acbf4f0` + `6c7387e` 接入的 happy-dom 基础上，引入 Playwright 覆盖 Dashboard 加载、Case List → Annotation Studio、Canvas 双击/拖拽/选中删除、训练 SSE、Assistant 面板只读加载；当前 `src/__tests__/annotationWorkflow.test.tsx` 仅在 jsdom/happy-dom 中跑 Reducer + 视图派生，不替代真实浏览器证据。
+4. ~~加固 sidecar：~~（**2026-06-06 已部分完成**，CORS + 删除类确认已落）补充 checkpoint 下载路径校验、服务绑定 origin 鉴权；当前 `c7328a5` 关闭的 CORS `*` 已收口。
+5. ~~建立 bundle 预算：~~（**2026-06-06 已完成**）webpack `maxEntrypointSize: 2 500 000` + `hints: 'error'`，`bb85031` 已把 firebase 拆 async chunk。继续通过 `ANALYZE=true npm run build` 观察 TF.js / Antd / ECharts 体积变化。
+6. 明确 demo 与生产边界（**持续**）：本轮 `10df188` + `180be1e` 让 mock 推理在导出 metadata 与 UI 上都有持久标记；`c487669` 沉淀 P0 audit 文档；生产部署前需把 `public/models/ecg-classifier/model.json` 替换为验证过的 `.pth` / TF.js bundle 并去掉 mock fallback 路径。
+7. 在 ECGFounder 仓库继续处理 `codex/fix-param-observer-current-epoch` PR（**P1**，持续）：等上游 `PKUDigitalHealth/ECGFounder` PR #1 review/合并，并单独清点原始 `D:\ECG founder\ECGFounder` 的未提交训练代码和产物。
