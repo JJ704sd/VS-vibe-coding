@@ -10,7 +10,7 @@ import {
 } from 'antd';
 import { useEffect, useRef, useCallback } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
-import ECGCanvas from '../components/Canvas/ECGCanvas';
+import ECGCanvas, { ECG_CANVAS_VIEW_WIDTH } from '../components/Canvas/ECGCanvas';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   selectModelLoading,
@@ -205,6 +205,14 @@ const AnnotationStudio: React.FC = () => {
     if (context?.recordId) {
       setCurrentRecordId(context.recordId);
     }
+
+    // Importing a new record invalidates any annotations tied to the previous
+    // record's logical canvas coordinates. Drop them from Redux; ECGCanvas's
+    // useEffect([annotations]) will then re-derive the Fabric annotation
+    // objects to match the empty array. Without this, old annotation circles
+    // would still float above the new waveform and exported JSON / CSV would
+    // mix annotations from two different records.
+    dispatch(setAnnotations([]));
 
     sourceLeadsRef.current = cloneLeads(nextLeads);
     setPlaybackCursor(0);
@@ -653,15 +661,19 @@ const AnnotationStudio: React.FC = () => {
       return;
     }
 
-    const viewWidth = 1200;
-    const autoRAnnotations: Annotation[] = peaks.slice(0, 250).map((sampleIndex) => ({
-      id: `auto_r_${lead.name}_${sampleIndex}`,
-      type: 'R',
-      position: (sampleIndex / Math.max(1, lead.data.length - 1)) * viewWidth,
-      confidence: 0.75,
-      manual: false,
-      timestamp: Date.now(),
-    }));
+    const autoRAnnotations: Annotation[] = peaks.slice(0, 250).map((sampleIndex) => {
+      const position =
+        (sampleIndex / Math.max(1, lead.data.length - 1)) * ECG_CANVAS_VIEW_WIDTH;
+      return {
+        id: `auto_r_${lead.name}_${sampleIndex}`,
+        type: 'R',
+        position,
+        x: position,
+        confidence: 0.75,
+        manual: false,
+        timestamp: Date.now(),
+      };
+    });
 
     const keptAnnotations = annotations.filter((item) => !item.id.startsWith('auto_r_'));
     dispatch(setAnnotations([...keptAnnotations, ...autoRAnnotations]));

@@ -44,6 +44,20 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
         >
           标注 T 波 (Ctrl+3)
         </Button>
+        <Button
+          type={activeTool === 'annotate' && activeAnnotationType === 'ST' ? 'primary' : 'default'}
+          block
+          onClick={() => onSelectAnnotationType('ST')}
+        >
+          标注 ST 段
+        </Button>
+        <Button
+          type={activeTool === 'annotate' && activeAnnotationType === 'U' ? 'primary' : 'default'}
+          block
+          onClick={() => onSelectAnnotationType('U')}
+        >
+          标注 U 波
+        </Button>
         <Button block onClick={() => onSelectTool('pan')}>
           切换平移模式
         </Button>

@@ -6,6 +6,11 @@ import { ZoomInOutlined, ZoomOutOutlined, FullscreenOutlined } from '@ant-design
 import { RootState } from '../../store';
 import { setCanvasState, addAnnotation, removeAnnotation } from '../../store/ecgSlice';
 import { Annotation, ECGLead } from '../../types';
+import { ECG_CANVAS_VIEW_WIDTH } from './constants';
+
+// Re-export so existing `import { ECG_CANVAS_VIEW_WIDTH } from
+// '.../ECGCanvas'` consumers keep working without churn.
+export { ECG_CANVAS_VIEW_WIDTH };
 
 interface ECGCanvasProps {
   width?: number;
@@ -18,7 +23,7 @@ interface ECGCanvasProps {
 }
 
 const ECGCanvas: React.FC<ECGCanvasProps> = ({
-  width = 1200,
+  width = ECG_CANVAS_VIEW_WIDTH,
   height = 600,
   leads = [],
   onAnnotationChange,
@@ -142,6 +147,18 @@ const ECGCanvas: React.FC<ECGCanvasProps> = ({
     if (!fabricCanvasRef.current || leads.length === 0) return;
     renderWaveforms();
   }, [leads]);
+
+  // Re-render annotation circles whenever the Redux annotations array changes.
+  // This is the only place annotation Fabric objects are derived — keeping
+  // Redux as the single source of truth. handleAddAnnotation /
+  // handleDeleteSelectedAnnotation now only dispatch; they do not mutate
+  // Fabric imperatively, so import-new-record flows automatically clear stale
+  // annotation circles without manual cleanup.
+  useEffect(() => {
+    const canvasInstance = fabricCanvasRef.current;
+    if (!canvasInstance) return;
+    renderAnnotationObjects(canvasInstance, annotations);
+  }, [annotations]);
 
   useEffect(() => {
     if (!deleteSignal) return;
@@ -287,58 +304,89 @@ const ECGCanvas: React.FC<ECGCanvasProps> = ({
       id: `ann_${Date.now()}`,
       type,
       position: pointer.x,
+      x: pointer.x,
+      y: pointer.y,
       confidence: 1.0,
       manual: true,
       timestamp: Date.now(),
     };
 
+    // Redux is the single source of truth. The annotation circle is rendered
+    // by the useEffect([annotations]) hook — do NOT mutate Fabric here.
     dispatch(addAnnotation(newAnnotation));
     onAnnotationChange?.([...annotations, newAnnotation]);
-
-    const circle = new fabric.Circle({
-      radius: 8,
-      fill: 'transparent',
-      stroke: '#ff0000',
-      strokeWidth: 2,
-      left: pointer.x - 8,
-      top: pointer.y - 8,
-      selectable: true,
-      name: `annotation_${newAnnotation.id}`,
-    });
-
-    const label = new fabric.Text(type, {
-      fontSize: 12,
-      fill: '#ff0000',
-      left: pointer.x - 4,
-      top: pointer.y - 20,
-      selectable: false,
-      name: `annotation_label_${newAnnotation.id}`,
-    });
-
-    fabricCanvasRef.current?.add(circle, label);
-    fabricCanvasRef.current?.renderAll();
   };
 
   const handleDeleteSelectedAnnotation = () => {
     const annotationId = selectedAnnotationIdRef.current;
-    const canvasInstance = fabricCanvasRef.current;
-    if (!annotationId || !canvasInstance) {
+    if (!annotationId) {
       return;
     }
 
-    canvasInstance.getObjects().forEach((obj) => {
-      if (
-        obj.name === `annotation_${annotationId}` ||
-        obj.name === `annotation_label_${annotationId}`
-      ) {
-        canvasInstance.remove(obj);
-      }
-    });
-    canvasInstance.discardActiveObject();
-    canvasInstance.renderAll();
+    // Drop the active selection immediately so the user sees the circle
+    // disappear; the Redux-driven useEffect will re-render the remaining
+    // annotations on the next tick.
+    const canvasInstance = fabricCanvasRef.current;
+    canvasInstance?.discardActiveObject();
+    canvasInstance?.renderAll();
+
     dispatch(removeAnnotation(annotationId));
     selectedAnnotationIdRef.current = null;
   };
+
+  /**
+   * Idempotently re-render annotation circles from the Redux `annotations`
+   * array. Removes any existing `annotation_*` / `annotation_label_*`
+   * Fabric objects first so the canvas never accumulates duplicates after
+   * repeated dispatches. This is the only writer of annotation Fabric
+   * objects — `handleAddAnnotation` and `handleDeleteSelectedAnnotation`
+   * do not touch Fabric directly.
+   */
+  const renderAnnotationObjects = useCallback(
+    (canvasInstance: fabric.Canvas, list: Annotation[]) => {
+      const objectsToRemove = canvasInstance.getObjects().filter((obj) => {
+        const n = obj.name ?? '';
+        return n.startsWith('annotation_') || n.startsWith('annotation_label_');
+      });
+      objectsToRemove.forEach((obj) => canvasInstance.remove(obj));
+
+      const markerRadius = 8;
+      list.forEach((annotation) => {
+        // Fall back to position when x/y are missing (e.g. legacy data
+        // imported from JSON before the x/y fields were populated).
+        const x = annotation.x ?? annotation.position;
+        // y is optional in the type; default to 0 (top of canvas) when the
+        // data only carries position. Downstream consumers that need a
+        // lead-aware y must compute it themselves.
+        const y = annotation.y ?? 0;
+
+        const circle = new fabric.Circle({
+          radius: markerRadius,
+          fill: 'transparent',
+          stroke: '#ff0000',
+          strokeWidth: 2,
+          left: x - markerRadius,
+          top: y - markerRadius,
+          selectable: true,
+          name: `annotation_${annotation.id}`,
+        });
+
+        const label = new fabric.Text(annotation.type, {
+          fontSize: 12,
+          fill: '#ff0000',
+          left: x - 4,
+          top: y - markerRadius - markerRadius - 4,
+          selectable: false,
+          name: `annotation_label_${annotation.id}`,
+        });
+
+        canvasInstance.add(circle, label);
+      });
+
+      canvasInstance.renderAll();
+    },
+    [],
+  );
 
   const handleZoom = (direction: 'in' | 'out' | 'reset') => {
     const canvasInstance = fabricCanvasRef.current;
