@@ -160,18 +160,10 @@ test('createPatient returns a locally-synthesised patient with a generated id wh
   assert.equal(typeof result.updatedAt, 'string');
 });
 
-test('createPatient fallback generates a unique id across consecutive failed calls', async () => {
-  globalThis.fetch = async () => {
-    throw new TypeError('fetch failed');
-  };
-
-  const first = await createPatient({ name: 'Dave', age: 40, gender: 'M' });
-  const second = await createPatient({ name: 'Eve', age: 35, gender: 'F' });
-
-  assert.match(first.id, /^P\d{3,}/);
-  assert.match(second.id, /^P\d{3,}/);
-  assert.notEqual(first.id, second.id);
-});
+// Redundant with the "many consecutive failed calls" test below — that one
+// already iterates 5 fallbacks and asserts the issued Set stays at size 5,
+// which is strictly stronger than the 2-call version. Kept here as a
+// regression comment so the next person doesn't re-add the lighter variant.
 
 test('createPatient fallback ids remain stable and unique across many consecutive failed calls', async () => {
   globalThis.fetch = async () => {
