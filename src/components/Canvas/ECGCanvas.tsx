@@ -6,7 +6,11 @@ import { ZoomInOutlined, ZoomOutOutlined, FullscreenOutlined } from '@ant-design
 import { RootState } from '../../store';
 import { setCanvasState, addAnnotation, removeAnnotation } from '../../store/ecgSlice';
 import { Annotation, ECGLead } from '../../types';
-import { ECG_CANVAS_VIEW_WIDTH } from './constants';
+import {
+  ECG_CANVAS_VIEW_WIDTH,
+  computeAmplitudeScale,
+  computeLeadBandHeight,
+} from './constants';
 
 // Re-export so existing `import { ECG_CANVAS_VIEW_WIDTH } from
 // '.../ECGCanvas'` consumers keep working without churn.
@@ -180,7 +184,7 @@ const ECGCanvas: React.FC<ECGCanvasProps> = ({
     });
 
     const colors = ['#47f5c8', '#7ec8ff', '#ffd76b', '#ff8ca8', '#8fe35f', '#c8a8ff'];
-    const leadBandHeight = height / Math.max(1, leads.length);
+    const leadBandHeight = computeLeadBandHeight(height, leads.length);
     const centerOffset = leadBandHeight / 2;
     const minorGridSize = Math.max(10, Math.floor(leadBandHeight / 8));
 
@@ -188,12 +192,10 @@ const ECGCanvas: React.FC<ECGCanvasProps> = ({
       const color = colors[index % colors.length];
       const yOffset = index * leadBandHeight + centerOffset;
       const points: number[] = [];
-      let maxAbs = 0.01;
-      for (let i = 0; i < lead.data.length; i++) {
-        const abs = Math.abs(lead.data[i]);
-        if (abs > maxAbs) maxAbs = abs;
-      }
-      const amplitudeScale = (leadBandHeight * 0.34) / maxAbs;
+      // Same amplitude normalisation as the original implementation; we
+      // delegate the math to the helper so AnnotationStudio can compute an
+      // identical y for auto R-peak annotations.
+      const amplitudeScale = computeAmplitudeScale(lead, leadBandHeight);
 
       lead.data.forEach((value, i) => {
         const x = (i / Math.max(1, lead.data.length - 1)) * width;

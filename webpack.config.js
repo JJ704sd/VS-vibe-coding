@@ -2,6 +2,7 @@ const path = require('path');
 const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const Dotenv = require('dotenv-webpack');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
 
 const isAnalyze = String(process.env.ANALYZE || '').toLowerCase() === 'true';
@@ -80,6 +81,26 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: './templates/app.html',
       inject: true,
+    }),
+    // Copy static assets from public/ into the production bundle. The
+    // dev server already serves `public/` via `static.directory`, but
+    // production webpack never touches the directory, so anything
+    // referenced via an absolute URL (`/models/ecg-classifier/...`)
+    // would 404 on GitHub Pages. Today the only required asset is the
+    // TensorFlow.js model directory. Real model.json + weight shards
+    // are intentionally NOT committed; the README placeholder IS
+    // copied so the build artefact tree is still inspectable, and the
+    // UI surfaces a "未配置真实模型" banner so reviewers know the
+    // mock inference path is expected. See scripts/check-build-assets.js
+    // for the post-build resource check.
+    new CopyWebpackPlugin({
+      patterns: [
+        {
+          from: path.resolve(__dirname, 'public/models'),
+          to: path.resolve(__dirname, 'dist/models'),
+          noErrorOnMissing: true,
+        },
+      ],
     }),
     new webpack.DefinePlugin({
       // Stringify at build time so the bundle contains the literal URL.

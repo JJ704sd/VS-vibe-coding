@@ -309,3 +309,69 @@ test('exportToCSV omits Source row when diagnosis.source is absent (backwards co
   const csv = exportToCSV(record);
   assert.equal(csv.includes('\nSource,'), false, 'Source row must be absent when diagnosis.source is undefined');
 });
+
+// --------------------------------------------------------------------------
+// BUG-2026-07-04-R-02 (P1): auto R-peak annotations now carry `y` so the
+// marker lands on the waveform. exportRecord must preserve `y` through
+// JSON (so a re-import can render the markers in the right place) and
+// must NOT silently promote it into a CSV column without updating the
+// header (otherwise downstream parsers index-drift).
+// --------------------------------------------------------------------------
+
+test('exportToJSON preserves auto R-peak annotation.y verbatim', () => {
+  // Build an annotation mirroring what AnnotationStudio.handleAutoDetectRPeaks
+  // emits after the fix: type R, manual false, y anchored to a lead band.
+  const record = buildRecord({
+    annotations: [
+      buildAnnotation({
+        id: 'auto_r_II_120',
+        type: 'R',
+        position: 144,
+        x: 144,
+        y: 73.2, // lead-2 band center, ~120/1000 of canvas width into the signal
+        confidence: 0.75,
+        manual: false,
+      }),
+    ],
+  });
+
+  const json = JSON.parse(
+    exportToJSON(record, { format: 'json', includeAnnotations: true, includeDiagnosis: false, includeMetadata: true }),
+  );
+
+  assert.equal(json.annotations.length, 1);
+  assert.equal(json.annotations[0].id, 'auto_r_II_120');
+  assert.equal(json.annotations[0].type, 'R');
+  assert.equal(json.annotations[0].y, 73.2, 'y must round-trip through JSON export');
+  assert.equal(json.annotations[0].manual, false);
+});
+
+test('exportToCSV header is still Type,Position,Confidence,Manual (no silent y column)', () => {
+  // Pinned so an attempt to add y to the CSV has to update this test on
+  // purpose and keep header/row alignment in sync.
+  const record = buildRecord({
+    annotations: [
+      buildAnnotation({
+        id: 'auto_r_II_120',
+        type: 'R',
+        position: 144,
+        x: 144,
+        y: 73.2,
+        confidence: 0.75,
+        manual: false,
+      }),
+    ],
+  });
+
+  const csv = exportToCSV(record);
+  const lines = csv.split('\n');
+  const annotationHeaderIndex = lines.indexOf('Annotations');
+  assert.ok(annotationHeaderIndex >= 0);
+  assert.equal(lines[annotationHeaderIndex + 1], 'Type,Position,Confidence,Manual');
+
+  const row = lines[annotationHeaderIndex + 2];
+  assert.equal(row, 'R,144,0.75,false');
+  // y must NOT appear in CSV row — the contract is "annotation.y is
+  // canvas-only, JSON preserves it".
+  assert.ok(!row.includes('73.2'), 'y must not be present on the CSV row');
+});

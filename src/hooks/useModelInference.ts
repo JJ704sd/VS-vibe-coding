@@ -22,6 +22,68 @@ interface UseModelInferenceReturn {
 const MODEL_CACHE_PREFIX = 'indexeddb://ecg-hook-model-';
 const CLASS_NAMES = ['正常', '房颤', '室上性心动过速', '室性心动过速', '停搏'];
 
+export type ActiveBackend = 'worker' | 'main' | null;
+
+/**
+ * Decide which backend should handle a `predict()` call given the current
+ * hook state. This is the single source of truth for backend routing — both
+ * `predict()` and the catch-fallback branch must keep this in sync.
+ *
+ * Bug context: previously `predict()` only checked `useWorker && workerRef`,
+ * so when a Worker load failure triggered a successful IndexedDB fallback the
+ * non-null `workerRef` (Worker still alive but model-less) kept stealing
+ * traffic, and the cached main-thread model was never used.
+ */
+export function selectPredictionRoute(
+  activeBackend: ActiveBackend,
+  hasWorker: boolean,
+  hasMainModel: boolean,
+): 'worker' | 'main' | 'none' {
+  if (activeBackend === 'worker' && hasWorker) return 'worker';
+  if (activeBackend === 'main' && hasMainModel) return 'main';
+  if (hasMainModel) return 'main';
+  return 'none';
+}
+
+/**
+ * Decide what state to apply after a load failure (primary path failed).
+ * Returns whether the cached model should become the active backend, whether
+ * the broken worker should be torn down, and what (if any) error to surface.
+ */
+export function resolveLoadFailureOutcome(args: {
+  useWorker: boolean;
+  primaryLoadFailed: boolean;
+  cacheModel: unknown | null;
+  loadError: unknown;
+}): {
+  activeBackend: ActiveBackend;
+  terminateWorker: boolean;
+  errorMessage: string | null;
+} {
+  const { useWorker, primaryLoadFailed, cacheModel: cached, loadError } = args;
+
+  if (!primaryLoadFailed) {
+    // No failure — caller should not be invoking this branch.
+    return { activeBackend: null, terminateWorker: false, errorMessage: null };
+  }
+
+  if (cached) {
+    return {
+      activeBackend: 'main',
+      // Worker path failed but a cached main-thread model exists — kill the
+      // broken worker so subsequent predict() calls cannot route through it.
+      terminateWorker: useWorker,
+      errorMessage: null,
+    };
+  }
+
+  return {
+    activeBackend: null,
+    terminateWorker: useWorker,
+    errorMessage: loadError instanceof Error ? loadError.message : 'Failed to load model',
+  };
+}
+
 export function useModelInference(options: UseModelInferenceOptions = {}): UseModelInferenceReturn {
   const { modelUrl = '/models/ecg-classifier/model.json', autoLoad = false, useWorker = true } = options;
 
@@ -31,6 +93,11 @@ export function useModelInference(options: UseModelInferenceOptions = {}): UseMo
 
   const modelRef = useRef<tf.LayersModel | null>(null);
   const workerRef = useRef<Worker | null>(null);
+  // Track which backend currently owns inference. Without this, a Worker load
+  // failure that triggers a successful IndexedDB fallback leaves `workerRef`
+  // non-null — `predict` would keep routing through the broken Worker even
+  // though `modelRef` is now populated from the cache.
+  const activeBackendRef = useRef<ActiveBackend>(null);
   const modelUrlRef = useRef(modelUrl);
 
   const getCacheKey = useCallback((url: string) => {
@@ -59,6 +126,9 @@ export function useModelInference(options: UseModelInferenceOptions = {}): UseMo
 
     setIsLoading(true);
     setError(null);
+    // Reset backend routing for the new attempt; the success/fallback branches
+    // below set it back to a concrete value before resolving.
+    activeBackendRef.current = null;
 
     try {
       if (useWorker && typeof Worker !== 'undefined') {
@@ -84,20 +154,39 @@ export function useModelInference(options: UseModelInferenceOptions = {}): UseMo
           workerRef.current.onerror = (event) => reject(event.error || new Error('Worker load failed'));
           workerRef.current.postMessage({ type: 'loadModel', data: { modelUrl: modelUrlToLoad } });
         });
+
+        activeBackendRef.current = 'worker';
       } else {
         modelRef.current = await tf.loadLayersModel(modelUrlToLoad);
         await cacheModel(modelRef.current, modelUrlToLoad);
+        activeBackendRef.current = 'main';
       }
 
       setIsLoaded(true);
     } catch (loadError) {
       const fallbackModel = await loadFromCache(modelUrlToLoad);
+      const outcome = resolveLoadFailureOutcome({
+        useWorker,
+        primaryLoadFailed: true,
+        cacheModel: fallbackModel,
+        loadError,
+      });
+
       if (fallbackModel) {
+        if (outcome.terminateWorker && workerRef.current) {
+          workerRef.current.terminate();
+          workerRef.current = null;
+        }
         modelRef.current = fallbackModel;
+        activeBackendRef.current = outcome.activeBackend;
         setIsLoaded(true);
-        setError('Loaded cached model');
+        // A successful fallback is not an error — clear any stale error so
+        // the UI does not show "Failed to load model" alongside a working
+        // cached model. We still log so offline recoveries leave a trace.
+        setError(null);
+        console.info('[useModelInference] Worker load failed; using cached model from IndexedDB.');
       } else {
-        setError(loadError instanceof Error ? loadError.message : 'Failed to load model');
+        setError(outcome.errorMessage);
       }
     } finally {
       setIsLoading(false);
@@ -105,7 +194,13 @@ export function useModelInference(options: UseModelInferenceOptions = {}): UseMo
   }, [cacheModel, loadFromCache, useWorker]);
 
   const predict = useCallback(async (signal: number[][]): Promise<ModelPrediction[]> => {
-    if (useWorker && workerRef.current) {
+    const route = selectPredictionRoute(
+      activeBackendRef.current,
+      workerRef.current !== null,
+      modelRef.current !== null,
+    );
+
+    if (route === 'worker') {
       return new Promise((resolve, reject) => {
         if (!workerRef.current) {
           reject(new Error('Worker not initialized'));
@@ -130,12 +225,20 @@ export function useModelInference(options: UseModelInferenceOptions = {}): UseMo
       });
     }
 
-    if (!modelRef.current) {
+    if (route === 'none') {
+      throw new Error('Model not loaded');
+    }
+
+    // `selectPredictionRoute` only returns 'main' when the model is loaded,
+    // but TypeScript can't follow that invariant across the boundary, so we
+    // re-check before dereffing the ref.
+    const mainModel = modelRef.current;
+    if (!mainModel) {
       throw new Error('Model not loaded');
     }
 
     const inputTensor = tf.tensor3d([signal]);
-    const prediction = modelRef.current.predict(inputTensor) as tf.Tensor;
+    const prediction = mainModel.predict(inputTensor) as tf.Tensor;
     const probabilities = Array.from(await prediction.data());
 
     inputTensor.dispose();
@@ -145,7 +248,7 @@ export function useModelInference(options: UseModelInferenceOptions = {}): UseMo
       className: label,
       probability: probabilities[index] || 0,
     })).sort((a, b) => b.probability - a.probability);
-  }, [useWorker]);
+  }, []);
 
   const predictWithHeatmap = useCallback(async (signal: number[][]): Promise<InferenceResult> => {
     const startTime = performance.now();
@@ -165,6 +268,7 @@ export function useModelInference(options: UseModelInferenceOptions = {}): UseMo
     modelRef.current = null;
     workerRef.current?.terminate();
     workerRef.current = null;
+    activeBackendRef.current = null;
     setIsLoaded(false);
   }, []);
 

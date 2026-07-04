@@ -2,6 +2,7 @@ const path = require('path');
 const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const Dotenv = require('dotenv-webpack');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
 
 const isAnalyze = String(process.env.ANALYZE || '').toLowerCase() === 'true';
@@ -79,6 +80,21 @@ module.exports = {
     new Dotenv(dotenvOptions),
     new HtmlWebpackPlugin({
       template: './templates/app.html',
+    }),
+    // Mirror the production CopyWebpackPlugin behaviour. The dev
+    // server already serves `public/` via `static.directory`, but a
+    // production-style build (e.g. `webpack --mode production --config
+    // webpack.config.dev.js` or `npm run preflight:demo -- --live`)
+    // needs the model assets on disk in dist/. Same rationale as the
+    // comment in webpack.config.js — see scripts/check-build-assets.js.
+    new CopyWebpackPlugin({
+      patterns: [
+        {
+          from: path.resolve(__dirname, 'public/models'),
+          to: path.resolve(__dirname, 'dist/models'),
+          noErrorOnMissing: true,
+        },
+      ],
     }),
     new webpack.DefinePlugin({
       'process.env.CLINIC_API_BASE_URL': JSON.stringify(process.env.CLINIC_API_BASE_URL),

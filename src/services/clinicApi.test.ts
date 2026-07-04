@@ -159,3 +159,38 @@ test('createPatient returns a locally-synthesised patient with a generated id wh
   assert.equal(typeof result.createdAt, 'string');
   assert.equal(typeof result.updatedAt, 'string');
 });
+
+test('createPatient fallback generates a unique id across consecutive failed calls', async () => {
+  globalThis.fetch = async () => {
+    throw new TypeError('fetch failed');
+  };
+
+  const first = await createPatient({ name: 'Dave', age: 40, gender: 'M' });
+  const second = await createPatient({ name: 'Eve', age: 35, gender: 'F' });
+
+  assert.match(first.id, /^P\d{3,}/);
+  assert.match(second.id, /^P\d{3,}/);
+  assert.notEqual(first.id, second.id);
+});
+
+test('createPatient fallback ids remain stable and unique across many consecutive failed calls', async () => {
+  globalThis.fetch = async () => {
+    throw new TypeError('fetch failed');
+  };
+
+  const issued = new Set<string>();
+  for (let i = 0; i < 5; i += 1) {
+    const patient = await createPatient({
+      name: `Fallback User ${i}`,
+      age: 30 + i,
+      gender: i % 2 === 0 ? 'M' : 'F',
+    });
+    assert.equal(
+      issued.has(patient.id),
+      false,
+      `duplicate fallback id on iteration ${i}: ${patient.id}`,
+    );
+    issued.add(patient.id);
+  }
+  assert.equal(issued.size, 5);
+});

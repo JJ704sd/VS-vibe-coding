@@ -10,7 +10,9 @@ import {
 } from 'antd';
 import { useEffect, useRef, useCallback } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
-import ECGCanvas, { ECG_CANVAS_VIEW_WIDTH } from '../components/Canvas/ECGCanvas';
+import ECGCanvas from '../components/Canvas/ECGCanvas';
+import { ECG_CANVAS_DEFAULT_HEIGHT } from '../components/Canvas/constants';
+import { buildAutoRPeakAnnotations } from '../components/Canvas/autoRPeakAnnotations';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   selectModelLoading,
@@ -587,7 +589,7 @@ const AnnotationStudio: React.FC = () => {
       await modelService.loadModel('/models/ecg-classifier/model.json');
       dispatch(setModelLoaded(true));
       if (modelService.isUsingMockInference()) {
-        message.warning('未找到真实模型，已切换到模拟推理模式');
+        message.warning('未配置真实模型，已切换到模拟推理模式');
       } else {
         message.success('真实模型加载成功');
       }
@@ -655,30 +657,23 @@ const AnnotationStudio: React.FC = () => {
       return;
     }
 
-    const lead = getActiveLead();
-    const peaks = findRPeaks(lead.data, peakThreshold);
-    if (peaks.length === 0) {
+    const activeLead = getActiveLead();
+    const autoRAnnotations = buildAutoRPeakAnnotations(
+      leads,
+      activeLead.name,
+      peakThreshold,
+      findRPeaks,
+    );
+    if (autoRAnnotations.length === 0) {
+      // Empty leads is already handled above; an empty result here means
+      // findRPeaks found nothing above the user's threshold.
       message.warning('未检测到 R 峰，请降低阈值后重试');
       return;
     }
 
-    const autoRAnnotations: Annotation[] = peaks.slice(0, 250).map((sampleIndex) => {
-      const position =
-        (sampleIndex / Math.max(1, lead.data.length - 1)) * ECG_CANVAS_VIEW_WIDTH;
-      return {
-        id: `auto_r_${lead.name}_${sampleIndex}`,
-        type: 'R',
-        position,
-        x: position,
-        confidence: 0.75,
-        manual: false,
-        timestamp: Date.now(),
-      };
-    });
-
     const keptAnnotations = annotations.filter((item) => !item.id.startsWith('auto_r_'));
     dispatch(setAnnotations([...keptAnnotations, ...autoRAnnotations]));
-    message.success(`已自动标注 ${autoRAnnotations.length} 个 R 峰（导联 ${lead.name}）`);
+    message.success(`已自动标注 ${autoRAnnotations.length} 个 R 峰（导联 ${activeLead.name}）`);
   };
 
   const handleExportCurrentRecord = (format: 'json' | 'csv'): void => {
@@ -880,7 +875,7 @@ const AnnotationStudio: React.FC = () => {
             </Space>
             <ECGCanvas
               leads={leads}
-              height={520}
+              height={ECG_CANVAS_DEFAULT_HEIGHT}
               controlledTool={activeTool}
               annotationType={activeAnnotationType}
               deleteSignal={deleteSignal}
@@ -925,6 +920,7 @@ const AnnotationStudio: React.FC = () => {
               minimaxEndpoint={minimaxEndpoint}
               minimaxApiKey={minimaxApiKey}
               minimaxModel={minimaxModel}
+              isUsingMockInference={modelService.isUsingMockInference()}
               onLoadModel={handleModelLoad}
               onAnalyze={handleAnalyze}
               onMinimaxAnalyze={handleMinimaxAnalyze}

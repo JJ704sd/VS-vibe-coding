@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildTrainingHistoryDiagnosis, getTrainingHistoryDiagnosis, parseTrainingStreamEvent } from './trainingApi.ts';
+import {
+  buildTrainingHistoryDiagnosis,
+  deleteTrainingRound,
+  getTrainingHistoryDiagnosis,
+  parseTrainingStreamEvent,
+} from './trainingApi.ts';
 
 test('parseTrainingStreamEvent parses valid JSON event data', () => {
   const result = parseTrainingStreamEvent<{ status: string }>({ data: '{"status":"running"}' } as MessageEvent);
@@ -93,4 +98,38 @@ test('buildTrainingHistoryDiagnosis includes checkpoint direction fallback', () 
 
   assert.equal(result.recommendedCheckpointDirection?.round, 'round_1');
   assert.equal(result.recommendedCheckpointDirection?.action, 'keep_best_round');
+});
+
+test('deleteTrainingRound sends DELETE with confirm query matching the round name', async () => {
+  const requestedUrls: string[] = [];
+  const requestedMethods: string[] = [];
+  globalThis.fetch = async (url, init) => {
+    requestedUrls.push(String(url));
+    requestedMethods.push(String(init?.method ?? 'GET'));
+    return new Response(JSON.stringify({ ok: true, deleted: 'round_1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  const result = await deleteTrainingRound('round_1');
+
+  assert.deepEqual(result, { ok: true, deleted: 'round_1' });
+  assert.equal(requestedMethods[0], 'DELETE');
+  assert.equal(requestedUrls[0], 'http://localhost:6090/api/training/history/round_1?confirm=round_1');
+});
+
+test('deleteTrainingRound URL-encodes the confirm query for round names with special characters', async () => {
+  const requestedUrls: string[] = [];
+  globalThis.fetch = async (url) => {
+    requestedUrls.push(String(url));
+    return new Response(JSON.stringify({ ok: true, deleted: 'round 1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  await deleteTrainingRound('round 1');
+
+  assert.equal(requestedUrls[0], 'http://localhost:6090/api/training/history/round%201?confirm=round%201');
 });

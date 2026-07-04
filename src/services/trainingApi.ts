@@ -343,7 +343,12 @@ export async function stopTraining(): Promise<{ ok: boolean }> {
 
 // Delete history round
 export async function deleteTrainingRound(round: string): Promise<{ ok: boolean; deleted: string }> {
-  const res = await fetch(`${API_BASE}/api/training/history/${round}`, {
+  // Backend requires ?confirm=<round_name> to acknowledge the deletion
+  // (see proxy-server/main.py::delete_training_round). We URL-encode both
+  // the path segment and the confirm query value so round names with
+  // spaces or special characters are transmitted safely.
+  const encodedRound = encodeURIComponent(round);
+  const res = await fetch(`${API_BASE}/api/training/history/${encodedRound}?confirm=${encodedRound}`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error('Failed to delete training round');

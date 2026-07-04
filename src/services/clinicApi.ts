@@ -116,6 +116,32 @@ const buildFallbackBundle = (patientId: string): PatientBundle => {
   };
 };
 
+// Module-level fallback ID generator state.
+//
+// `mockPatients.length + 1` was previously used directly, which means every
+// failed-fallback `createPatient` call returns the same id (e.g. `P021`).
+// That breaks list keys, patient-bundle navigation and downstream annotation
+// linkage when the real API is unreachable. We now keep a module-scoped set
+// of issued ids plus a monotonic counter so successive fallback calls always
+// produce a stable, unique id while never colliding with existing PTB-XL
+// mock ids (which currently span P001..P020).
+const generatedFallbackPatientIds = new Set<string>();
+let fallbackPatientSeq = 0;
+
+const generateFallbackPatientId = (): string => {
+  fallbackPatientSeq += 1;
+  const baseNumber = mockPatients.length + fallbackPatientSeq;
+  let candidate = `P${String(baseNumber).padStart(3, '0')}`;
+  // Defensive: if seq ever collides with a previously issued id (e.g. the
+  // module is reused after hot reload or the counter is reset out of band),
+  // append a short random suffix to guarantee uniqueness.
+  if (generatedFallbackPatientIds.has(candidate)) {
+    candidate = `${candidate}-${Math.random().toString(36).slice(2, 6)}`;
+  }
+  generatedFallbackPatientIds.add(candidate);
+  return candidate;
+};
+
 export async function getDashboardOverview(): Promise<DashboardOverview> {
   try {
     return await requestJson<DashboardOverview>({
@@ -172,7 +198,7 @@ export async function createPatient(input: CreatePatientInput): Promise<Patient>
     return response.patient;
   } catch (error) {
     if (isNetworkError(error)) {
-      const patientId = `P${String(mockPatients.length + 1).padStart(3, '0')}`;
+      const patientId = generateFallbackPatientId();
       return clone({
         id: patientId,
         name: input.name,

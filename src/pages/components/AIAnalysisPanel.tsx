@@ -1,6 +1,6 @@
 import React from 'react';
-import { Card, Button, Space, Tag, Input } from 'antd';
-import { RobotOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { Alert, Card, Button, Space, Tag, Input } from 'antd';
+import { RobotOutlined, ThunderboltOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 
 interface AIAnalysisPanelProps {
   modelLoaded: boolean;
@@ -10,6 +10,13 @@ interface AIAnalysisPanelProps {
   minimaxEndpoint: string;
   minimaxApiKey: string;
   minimaxModel: string;
+  /**
+   * True when `ModelService` fell back to the heuristic mock predictor
+   * because no real `model.json` was reachable at the configured URL.
+   * Drives a permanent banner so reviewers do not mistake mock output
+   * for real model predictions.
+   */
+  isUsingMockInference?: boolean;
   onLoadModel: () => void;
   onAnalyze: () => void;
   onMinimaxAnalyze: () => void;
@@ -26,6 +33,7 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
   minimaxEndpoint,
   minimaxApiKey,
   minimaxModel,
+  isUsingMockInference = false,
   onLoadModel,
   onAnalyze,
   onMinimaxAnalyze,
@@ -36,6 +44,22 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
   return (
     <Card className="section-card" title="AI 辅助" extra={<Tag color="gold">Inference</Tag>}>
       <Space direction="vertical" style={{ width: '100%' }}>
+        {isUsingMockInference ? (
+          <Alert
+            type="warning"
+            showIcon
+            icon={<ExclamationCircleOutlined />}
+            message="真实模型未配置"
+            description={
+              <span>
+                当前仓库未包含 <code>model.json</code>，AI 分析已自动切换到模拟推理模式。
+                结果仅用于流程演示，<strong>不可用于临床参考</strong>。
+                如需启用真实推理，请把训练好的 TensorFlow.js 模型放到
+                <code> public/models/ecg-classifier/ </code>后重新构建。
+              </span>
+            }
+          />
+        ) : null}
         <Button
           icon={<RobotOutlined />}
           onClick={onLoadModel}
@@ -51,7 +75,7 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
           loading={isAnalyzing}
           block
         >
-          AI 分析
+          {isUsingMockInference ? 'AI 分析 (模拟)' : 'AI 分析'}
         </Button>
         <Input
           size="small"

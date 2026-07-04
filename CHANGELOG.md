@@ -12,6 +12,33 @@ follow-up commits already shipped in 0.2.0 (kept here for traceability),
 two P0 bug fixes, and one audit closeout doc.
 
 ### Added
+- **`copy-webpack-plugin` for production builds**: `webpack.config.js`
+  and `webpack.config.dev.js` now run `CopyWebpackPlugin` against
+  `public/models/**` so the TensorFlow.js model directory is shipped
+  to `dist/models/` (and therefore to GitHub Pages). `public/models/`
+  currently only ships the README placeholder; real `model.json` +
+  weight shards are intentionally NOT committed.
+- **`scripts/check-build-assets.js`** post-build resource check: hard
+  fails on missing `dist/`, `dist/index.html`, `dist/models/`,
+  `dist/models/ecg-classifier/`; soft warns on missing
+  `dist/models/ecg-classifier/model.json` (the documented default state).
+  Pass `--strict` to flip the soft warn into a hard failure once a real
+  model is shipped. Wired into `npm run check` after `npm run build` and
+  also exposed as a standalone `npm run check:assets` / `npm run build:check`.
+- **"真实模型未配置" UI banner** (`AIAnalysisPanel` + `AnnotationStudio`):
+  when `modelService.isUsingMockInference()` is true, the panel now
+  surfaces a permanent warning Alert explaining that AI results come from
+  the heuristic `mockPredict` fallback and are not suitable for clinical
+  use. The "AI 分析" button label also switches to "AI 分析 (模拟)" so
+  reviewers cannot mistake mock output for real model predictions.
+- **Unit tests for `scripts/check-build-assets.js`** (7 cases, all green):
+  complete dist/ tree, missing model.json in non-strict mode (warn),
+  missing model.json in strict mode (fail), missing dist/models/
+  (fail — the regression that motivated this round), missing dist/
+  itself (fail), soft-spec missing file (warn), directory entry count
+  in detail line.
+
+### Added
 - **Canvas coordinate invariant** (`46dc5d1 refactor(canvas)`): the shared
   constant `ECG_CANVAS_VIEW_WIDTH` lives in
   `src/components/Canvas/constants.ts`; ECGCanvas default width and the
