@@ -45,6 +45,14 @@ export function exportToCSV(record: ECGRecord): string {
   if (record.diagnosis) {
     lines.push(`Diagnosis,${record.diagnosis.label}`);
     lines.push(`Confidence,${(record.diagnosis.confidence * 100).toFixed(1)}%`);
+    if (record.diagnosis.source) {
+      // Pin a single-word provenance token so a downstream consumer can grep
+      // the file and tell whether the diagnosis came from the real TF.js
+      // model, the heuristic mock fallback, or was synthesised from HR
+      // features. Without this row, an exported `0.92 房颤` looks identical
+      // to a real-model output.
+      lines.push(`Source,${record.diagnosis.source}`);
+    }
   }
   
   lines.push('');

@@ -29,6 +29,7 @@ import { WFDBParser } from '../utils/dicomParser';
 import { minimaxService } from '../services/minimaxService';
 import { calculateSignalQuality, extractFeatures, findRPeaks } from '../utils/signalProcessor';
 import { exportRecord } from '../utils/exportUtils';
+import { buildDiagnosis } from '../utils/buildDiagnosis';
 import {
   AnnotationToolbar,
   ImportPanel,
@@ -698,10 +699,11 @@ const AnnotationStudio: React.FC = () => {
       samplingRate: leads[0]?.samplingRate || 500,
       annotations,
       signalQuality: calculateSignalQuality(activeLead.data),
-      diagnosis:
-        inferenceResults.length > 0
-          ? { label: inferenceResults[0].className, confidence: inferenceResults[0].probability }
-          : { label: features.heartRate ? `HR ${features.heartRate} bpm` : '未分析', confidence: 0.5 },
+      diagnosis: buildDiagnosis({
+        inferenceResults,
+        isUsingMockInference: modelService.isUsingMockInference(),
+        heartRate: features.heartRate ?? null,
+      }),
     };
 
     exportRecord(record, {

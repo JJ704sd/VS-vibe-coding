@@ -210,3 +210,102 @@ test('exportToCSV writes annotation.position as-is (canvas px; no unit conversio
   const cells = row.split(',');
   assert.equal(cells[1], '873.4567');
 });
+
+// --------------------------------------------------------------------------
+// BUG-2026-07-04-R-01 (P0): mock inference must not be exported as a real
+// diagnosis. These tests pin the export-pipeline contract: a `source` marker
+// on `record.diagnosis` (set by `buildDiagnosis`) must flow through both
+// formats. AnnotationStudio is the call site that fills `source` based on
+// `modelService.isUsingMockInference()`; the helper itself is covered by
+// buildDiagnosis.test.ts.
+// --------------------------------------------------------------------------
+
+test('exportToJSON preserves diagnosis.source so downstream consumers can detect mock fallback', () => {
+  const record = buildRecord({
+    diagnosis: { label: '房颤', confidence: 0.92, source: 'mock' },
+    annotations: [],
+  });
+
+  const json = JSON.parse(
+    exportToJSON(record, { format: 'json', includeAnnotations: true, includeDiagnosis: true, includeMetadata: true }),
+  );
+
+  assert.equal(json.diagnosis.label, '房颤');
+  assert.equal(json.diagnosis.confidence, 0.92);
+  assert.equal(json.diagnosis.source, 'mock');
+});
+
+test('exportToJSON preserves diagnosis.source:"real" for real-model output', () => {
+  const record = buildRecord({
+    diagnosis: { label: '正常', confidence: 0.81, source: 'real' },
+    annotations: [],
+  });
+
+  const json = JSON.parse(
+    exportToJSON(record, { format: 'json', includeAnnotations: true, includeDiagnosis: true, includeMetadata: true }),
+  );
+
+  assert.equal(json.diagnosis.source, 'real');
+});
+
+test('exportToJSON preserves diagnosis.source:"unavailable" for HR fallback', () => {
+  const record = buildRecord({
+    diagnosis: { label: 'HR 75 bpm', confidence: 0.5, source: 'unavailable' },
+    annotations: [],
+  });
+
+  const json = JSON.parse(
+    exportToJSON(record, { format: 'json', includeAnnotations: true, includeDiagnosis: true, includeMetadata: true }),
+  );
+
+  assert.equal(json.diagnosis.source, 'unavailable');
+});
+
+test('exportToCSV writes Source row when diagnosis.source is set (mock case)', () => {
+  const record = buildRecord({
+    diagnosis: { label: '房颤', confidence: 0.92, source: 'mock' },
+    annotations: [],
+  });
+
+  const csv = exportToCSV(record);
+
+  // The Source row must appear immediately after the Confidence row so a
+  // grep-by-section consumer sees the provenance right next to the label.
+  const lines = csv.split('\n');
+  const confidenceIdx = lines.findIndex((l) => l.startsWith('Confidence,'));
+  assert.ok(confidenceIdx >= 0, 'expected Confidence row');
+  assert.equal(lines[confidenceIdx + 1], 'Source,mock');
+});
+
+test('exportToCSV writes Source,real for real-model diagnosis', () => {
+  const record = buildRecord({
+    diagnosis: { label: '正常', confidence: 0.81, source: 'real' },
+    annotations: [],
+  });
+
+  const csv = exportToCSV(record);
+  assert.match(csv, /Source,real/);
+});
+
+test('exportToCSV writes Source,unavailable for HR fallback diagnosis', () => {
+  const record = buildRecord({
+    diagnosis: { label: 'HR 75 bpm', confidence: 0.5, source: 'unavailable' },
+    annotations: [],
+  });
+
+  const csv = exportToCSV(record);
+  assert.match(csv, /Source,unavailable/);
+});
+
+test('exportToCSV omits Source row when diagnosis.source is absent (backwards compatibility for older exports)', () => {
+  // Existing ECG records imported from older exports (or hand-built test
+  // fixtures) won't carry the new source field. The CSV writer must not
+  // emit a stray `Source,undefined` row in that case.
+  const record = buildRecord({
+    diagnosis: { label: 'Normal sinus rhythm', confidence: 0.9 },
+    annotations: [],
+  });
+
+  const csv = exportToCSV(record);
+  assert.equal(csv.includes('\nSource,'), false, 'Source row must be absent when diagnosis.source is undefined');
+});

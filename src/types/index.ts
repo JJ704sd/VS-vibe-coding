@@ -28,6 +28,14 @@ export interface ECGRecord {
   diagnosis?: {
     label: string;
     confidence: number;
+    /**
+     * Provenance of the diagnosis. `'real'` means the TF.js model produced it;
+     * `'mock'` means `ModelService.mockPredict` was used as a fallback;
+     * `'unavailable'` means no model ran and the label was synthesised from
+     * extracted features (HR / "未分析"). Optional so records imported from
+     * older exports without the field still type-check.
+     */
+    source?: 'real' | 'mock' | 'unavailable';
   };
 }
 
