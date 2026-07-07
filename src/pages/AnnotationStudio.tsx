@@ -339,21 +339,16 @@ const AnnotationStudio: React.FC = () => {
     return fileName.replace(/\.[^/.]+$/, '').toLowerCase();
   };
 
-  const arrayBufferToBinaryString = (buffer: ArrayBuffer): string => {
-    const bytes = new Uint8Array(buffer);
-    // Use TextDecoder for efficient conversion, fallback to String.fromCharCode for small buffers
-    if (typeof TextDecoder !== 'undefined') {
-      return new TextDecoder('ascii').decode(bytes);
-    }
-    // Fallback for environments without TextDecoder
-    return String.fromCharCode(...bytes);
-  };
-
   const parseWfdbPair = async (heaFile: File, datFile: File): Promise<ECGLead[]> => {
     const parser = new WFDBParser();
     const headerText = await heaFile.text();
-    const datBinary = arrayBufferToBinaryString(await datFile.arrayBuffer());
-    const ecgData = parser.parse(headerText, datBinary);
+    // Pass the raw bytes directly to the parser. The previous code path
+    // (`arrayBufferToBinaryString` → `TextDecoder('ascii')`) silently
+    // mangled every byte >= 0x80, which is exactly the range used by the
+    // 12-bit-packed MIT-BIH `212` format and the high bytes of 16-bit
+    // signed samples.
+    const datBytes = new Uint8Array(await datFile.arrayBuffer());
+    const ecgData = parser.parse(headerText, datBytes);
 
     if (!ecgData || ecgData.leads.length === 0) {
       throw new Error('WFDB 解析失败，请确认 .hea 与 .dat 匹配');
