@@ -163,3 +163,69 @@ test('parse() falls back to format 16 + gain 200 + 12-bit when .hea is short', (
   // First lead, second sample = 400 / 200 = 2 mV
   assert.equal(result.leads[0].data[1], 2);
 });
+
+// ---------------------------------------------------------------------------
+// C-15: parseWfdbPairBuffers + parseECG entry integration.
+// ---------------------------------------------------------------------------
+
+import { parseWfdbPairBuffers, parseECG } from './dicomParser.ts';
+
+test('C-15: parseWfdbPairBuffers decodes a 1-lead format-16 record', () => {
+  const samples = [100, 200, 300, 400];
+  const header = 'r4 1 360 4\nr4.dat 16 200 12 0 0 0 0 MLII';
+  const datBytes = new Uint8Array(samples.length * 2);
+  {
+    const view = new DataView(datBytes.buffer);
+    samples.forEach((value, i) => view.setInt16(i * 2, value, true));
+  }
+  const result = parseWfdbPairBuffers({
+    heaBuffer: new TextEncoder().encode(header).buffer,
+    datBuffer: datBytes.buffer,
+  });
+  assert.ok(result);
+  assert.equal(result.leads.length, 1);
+  assert.equal(result.samplingRate, 360);
+  assert.equal(result.leads[0].data.length, samples.length);
+  // (raw / 200) mV
+  for (let i = 0; i < samples.length; i += 1) {
+    assert.ok(Math.abs(result.leads[0].data[i] - samples[i] / 200) < 1e-6);
+  }
+});
+
+test('C-15: parseECG with { heaBuffer, datBuffer } routes to WFDB', () => {
+  const header = 'r5 1 500 2\nr5.dat 212 200 12 1024 0 0 0 MLII';
+  const heaBuffer = new TextEncoder().encode(header).buffer;
+
+  // Build 212 packed samples for [512, 1024].
+  // 512  = 0x200 (12-bit, byte0=0x00, low nibble of byte1=0x2)
+  // 1024 = 0x400 (12-bit, high nibble of byte1=0x0, byte2=0x40)
+  //   byte0 = 0x00
+  //   byte1 = (0x200 >> 8 & 0x0F) | ((0x400 & 0x0F) << 4) = 0x02 | 0x00 = 0x02
+  //   byte2 = (0x400 >> 4) & 0xFF = 0x40
+  const datBytes = new Uint8Array([0x00, 0x02, 0x40]);
+  const datBuffer = datBytes.buffer;
+
+  const result = parseECG(new ArrayBuffer(0), { heaBuffer, datBuffer });
+  assert.ok(result);
+  assert.equal(result.leads.length, 1);
+  assert.equal(result.samplingRate, 500);
+  // (raw - 1024) / 200: 512 → -2.56 mV, 1024 → 0 mV
+  assert.ok(Math.abs(result.leads[0].data[0] - (-512 / 200)) < 1e-6);
+  assert.equal(result.leads[0].data[1], 0);
+});
+
+test('C-15: parseECG with empty buffer + WFDB options bypasses detectFormat', () => {
+  // An empty ArrayBuffer would normally be detected as 'unknown'. The
+  // {heaBuffer, datBuffer} shortcut must short-circuit detectFormat and
+  // route straight to the WFDB parser.
+  const header = 'r6 1 250 1\nr6.dat 16 1 12 0 0 0 0 MLII';
+  const heaBuffer = new TextEncoder().encode(header).buffer;
+  const datBytes = new Uint8Array(2);
+  new DataView(datBytes.buffer).setInt16(0, 42, true);
+  const result = parseECG(new ArrayBuffer(0), {
+    heaBuffer,
+    datBuffer: datBytes.buffer,
+  });
+  assert.ok(result, 'parseECG must return non-null even with empty ArrayBuffer when WFDB options are provided');
+  assert.equal(result.leads[0].data[0], 42); // gain=1, baseline=0 → 42 mV
+});

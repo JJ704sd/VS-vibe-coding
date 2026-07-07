@@ -17,42 +17,99 @@ export interface ImportResult {
 class ECGParserService {
   async parseFile(file: File, options?: ParseOptions): Promise<ImportResult> {
     try {
+      const lowerName = (file.name || '').toLowerCase();
+
+      // A-05: `.hl7` is text. Decode as UTF-8 and route through the HL7
+      // parser instead of the ArrayBuffer/DICOM path. Without this branch
+      // `detectFormat(ArrayBuffer)` returns 'unknown' for HL7 and the file
+      // is rejected as "Unsupported file format".
+      if (lowerName.endsWith('.hl7')) {
+        const text = await file.text();
+        const ecgData = parseECG(text);
+        if (!ecgData) {
+          return { success: false, error: 'Failed to parse HL7 message' };
+        }
+        return this.buildRecord(ecgData, options);
+      }
+
       const arrayBuffer = await file.arrayBuffer();
-      const format = detectFormat(arrayBuffer);
+      const format = detectFormat(arrayBuffer, file.name);
 
       if (format === 'unknown') {
         return { success: false, error: 'Unsupported file format' };
       }
 
-      const ecgData = parseECG(arrayBuffer);
+      // C-15: a lone `.dat` cannot be parsed without its `.hea` sibling.
+      // Surface a clear error so the caller can prompt for the pair.
+      if (format === 'wfdb') {
+        return {
+          success: false,
+          error: 'WFDB .dat requires the matching .hea — please upload both files',
+        };
+      }
+
+      const ecgData = parseECG(arrayBuffer, { fileName: file.name });
       if (!ecgData) {
         return { success: false, error: 'Failed to parse ECG data' };
       }
 
-      const processedLeads = this.processLeads(ecgData.leads, options);
-      const sampleLead = processedLeads[0];
-      const features = extractFeatures(sampleLead?.data || [], ecgData.samplingRate);
-
-      return {
-        success: true,
-        record: {
-          id: this.generateId(),
-          patientId: ecgData.patientInfo?.id || '',
-          deviceId: ecgData.deviceInfo?.model || 'Unknown Device',
-          timestamp: new Date().toISOString(),
-          leads: processedLeads,
-          duration: ecgData.duration,
-          samplingRate: ecgData.samplingRate,
-          annotations: [],
-          signalQuality: features.signalQuality,
-        },
-      };
+      return this.buildRecord(ecgData, options);
     } catch (error) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
+  }
+
+  /**
+   * Parse a WFDB record pair (.hea + .dat) provided as two `File` objects.
+   * Returns the same `ImportResult` shape as `parseFile` so the UI can
+   * treat them uniformly.
+   */
+  async parseWfdbPair(heaFile: File, datFile: File, options?: ParseOptions): Promise<ImportResult> {
+    try {
+      const [heaBuffer, datBuffer] = await Promise.all([
+        heaFile.arrayBuffer(),
+        datFile.arrayBuffer(),
+      ]);
+      const ecgData = parseECG(new ArrayBuffer(0), {
+        heaBuffer,
+        datBuffer,
+      });
+      if (!ecgData) {
+        return { success: false, error: 'Failed to parse WFDB pair' };
+      }
+      return this.buildRecord(ecgData, options);
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  private buildRecord(ecgData: ReturnType<typeof parseECG>, options?: ParseOptions): ImportResult {
+    if (!ecgData) {
+      return { success: false, error: 'Failed to parse ECG data' };
+    }
+    const processedLeads = this.processLeads(ecgData.leads, options);
+    const sampleLead = processedLeads[0];
+    const features = extractFeatures(sampleLead?.data || [], ecgData.samplingRate);
+    return {
+      success: true,
+      record: {
+        id: this.generateId(),
+        patientId: ecgData.patientInfo?.id || '',
+        deviceId: ecgData.deviceInfo?.model || 'Unknown Device',
+        timestamp: new Date().toISOString(),
+        leads: processedLeads,
+        duration: ecgData.duration,
+        samplingRate: ecgData.samplingRate,
+        annotations: [],
+        signalQuality: features.signalQuality,
+      },
+    };
   }
 
   async parseJSON(jsonString: string): Promise<ImportResult> {
