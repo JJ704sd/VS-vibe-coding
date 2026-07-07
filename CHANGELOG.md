@@ -392,6 +392,101 @@ two P0 bug fixes, and one audit closeout doc.
   - `8a911bb fix(studio): B-06/B-07 (2 P1)` — Track F
   - `bba5196 merge: Track F`
 
+### Added (2026-07-07 batch 4 C-residuals P1 closeout round)
+> Closes the last **3 P1** from the 2026-07-07 audit (23 P1 → 20 P1 closed in
+> batch 3 → 23 P1 closed in batch 4). Final state on main: **5 P0 + 23 P1 + 0
+> P2 + 0 P3 closed**. Remaining: **20 P2 + 6 P3 = 26** feed future rounds.
+> 250/251 unit tests pass (was 246 before batch 4; +4 useOfflineMode tests).
+
+- **RAG fallback directory is now configurable and defaults to the sidecar
+  data dir** (`fix(assistant)` (`37498b6`), C-06): `RAGStore.__init__`
+  takes a `fallback_dir: Path | str | None` argument. The default
+  `DEFAULT_FALLBACK_DIR` is computed as
+  `proxy-server/.data/assistant/` (sibling of the sidecar, not under the
+  repo) so a long-running process can never accidentally `git status`-pollute
+  `<repo>/docs/assistant/knowledge-base.md`. The `rebuild()` fallback now
+  writes to `self.fallback_dir` instead of `repo_root / "docs" / "assistant"`,
+  and a new regression test pins the contract that the repo working tree
+  stays clean even when no docs are present.
+- **Assistant error responses no longer leak absolute paths**
+  (`fix(assistant)` (`37498b6`), C-07): the per-file `errors[]` entries
+  surfaced to the API caller now carry only `{filename, code}` where `code`
+  is the exception class name (e.g. `PermissionError`, `IsADirectoryError`).
+  The full absolute path and the raw exception message still go to the
+  sidecar log (`assistant.rag_store` logger, WARNING level) so operators
+  can debug, but never cross the API boundary. The audit-identified
+  `attack scenario where a frontend user enumerates the repo layout from
+  an error message` is now closed end-to-end.
+- **`useOfflineMode` accepts a real `executors` map** (`fix(hook)`
+  (`01f51b9`), C-19): the hook now takes an optional
+  `{ executors?: PendingActionExecutors }` argument. Without executors the
+  hook's `syncNow` short-circuits with a single, visible `console.warn`
+  explaining how to enable real sync, instead of silently re-marking every
+  action as failed. Business modules that want real offline replay can
+  pass `useOfflineMode({ executors: { create, update, delete } })`. The
+  behavior of an executor that throws is preserved (action is kept with
+  `retryCount++` and `lastError` populated, never lost).
+
+### Changed (2026-07-07 batch 4 round)
+- **`RAGStore`** (`fix(assistant)`): signature now reads
+  `RAGStore(repo_root, fallback_dir=None)`. `main.py:68` keeps the existing
+  one-argument call (`RAGStore(REPO_ROOT)`) — the new param defaults to
+  `proxy-server/.data/assistant/` so the sidecar boots identically. The
+  in-process `tests/test_assistant_service.py` regression test was updated
+  to monkey-patch `DEFAULT_FALLBACK_DIR` to a `tmp_path` and assert the
+  repo working tree stays clean, instead of the old (now-obsolete) assertion
+  that the file lands in `tmp_path / docs / assistant / knowledge-base.md`.
+- **`useOfflineMode` return shape**: unchanged. The new `options` parameter
+  is additive and optional — `useOfflineMode()` still works (it just won't
+  drain the queue without executors wired up, which is the C-19 design
+  intent: a hook that's never wired up is no worse than before, a hook
+  that's wired up is finally usable).
+
+### Risks and known gaps (batch 4)
+- **P2 + P3 backlog remains**: 20 P2 + 6 P3 = 26 items still open from the
+  2026-07-07 audit (e.g. C-08 assistant error response loses root cause,
+  C-16/17/18 httpClient stability, C-20–C-22 training dashboard error
+  surfaces, B-08–B-12 demo / build / docs hygiene, D-5–D-16 sidecar / CI
+  hygiene). None of them are P0 or P1; the project can ship a release
+  candidate from `main` once the deployment pre-reqs (sidecar admin token,
+  CORS, real TF.js model) are in place.
+- **`useOfflineMode` still has no production caller**. The hook is now
+  correctly designed to be called with `executors`, but no component in
+  `src/` passes them today. This is a deliberate scope cut: C-19 was the
+  "hook shape" risk, not the "no caller exists" risk (the latter is a
+  product decision that belongs in a follow-up round, not in a P1
+  closeout).
+- **Sidecar data dir lifecycle**: `proxy-server/.data/assistant/` is
+  created on first `rebuild()` when no docs are present. The directory is
+  not gitignored today (the repo does not yet have a `.data` ignore rule
+  for it). For a real deployment the operator should either:
+  (1) ship a pre-populated knowledge base in the sidecar data dir and
+      disable the fallback write, or
+  (2) add `proxy-server/.data/` to `.gitignore` and accept the runtime
+      write on first use. The batch 5 closeout will pick the right
+      answer once product decides whether the sidecar is single-tenant
+      demo or multi-tenant production.
+
+### Verification (2026-07-07 batch 4 round)
+- `npm run lint` — 0 errors
+- `npm run typecheck` — 0 errors
+- `npm run test:unit` — **250/251 pass** (1 pre-existing skip; was 246
+  before batch 4; +4 useOfflineMode tests covering C-19: no-executors
+  warn, executors drain, executor throw → keep with lastError, clear
+  pending actions)
+- `npm run test:backend` — **74 passed** (was 30 before batch 1+2 +
+  batch 3 round; +5 RAG tests covering C-06 fallback dir + C-07
+  sanitized errors + the existing fallbacks; the 1 obsolete test in
+  `test_assistant_service.py` was updated to assert the new contract)
+- `npm run build` — webpack compiled successfully, 1.5 MiB entrypoint,
+  no size warnings (`hints: 'error'` + `assetFilter` both enforce after
+  the `b995732` cherry-pick)
+- `npm run check:assets` — 0 fail
+- `pwsh scripts/check-bundle-budget-sync.ps1` — exits 0
+- `git diff --check` — 0 exit
+- `npm run check` (combined) — 0 errors across lint / typecheck /
+  test:unit / build / check:assets
+
 ## [0.2.0] - 2026-06-06
 
 The 2026-06-06 hardening round. Five feature / fix commits followed by

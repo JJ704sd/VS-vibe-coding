@@ -98,6 +98,47 @@ cherry-pick（9 个 feat + 4 个 merge + 1 个 cherry-pick，按时间顺序）�
 - **C-residuals 3 项 P1** 仍 open（C-06 RAG fallback 写 `docs/assistant/
   knowledge-base.md` / C-07 assistant error 暴露绝对路径 / C-19 syncNow
   空 executor），需要单独的 round。
+
+## 2026-07-07 batch 4 C-residuals P1 closeout round (本轮新增)
+
+围绕 batch 3 后剩余的 3 项 P1（C-06 / C-07 / C-19，全部 C track residuals），
+本轮 2 个 fix 提交 + 1 个 closeout 文档，按合并顺序：
+
+| SHA | 类型 | 摘要 |
+| --- | --- | --- |
+| `37498b6` | `fix(assistant)` | C-06 RAG fallback 写 `proxy-server/.data/assistant/` 不再写仓库 + C-07 error 响应脱敏为 `{filename, code}`（2 P1） |
+| `01f51b9` | `fix(hook)` | C-19 `useOfflineMode` 接受 `options.executors` 入参；无 executor 时单条可见 warn，不再 silently mark failed（1 P1） |
+| `<docs-commit-sha>` | `docs(closeout)` | batch 4 closeout：CHANGELOG + REVIEW 重写跟进 |
+
+**累计 close（本 round + 之前 round）：** 全部 **5 P0 + 23 P1**（audit 23 P1
+中的 23 个，已 100% close）。**20 P2 + 6 P3** 仍 open，进 backlog。
+
+**本 round 残留 / 风险：**
+
+- **C-19 `useOfflineMode` 仍无 production caller**。hook 现在正确接受
+  `executors` map，但 `src/` 下没人传 `executors`，跟 batch 1 时的状态
+  一致。这是有意 scope cut：C-19 风险点是"hook shape 设计错误"，
+  "无 caller"是产品决策（不归 P1 closeout 管），下一轮按需接 case list
+  / annotation create 的真实 executor。
+- **`proxy-server/.data/assistant/` 不在 `.gitignore`**。首次 rebuild 写
+  fallback 时会在 sidecar 目录落一个 `knowledge-base.md`。生产部署前
+  需在 `.gitignore` 加 `proxy-server/.data/`（或随包 ship 预制 KB
+  并禁用 fallback write），下一轮 round 5 决策。
+- **Test 数 +4**。batch 3 baseline 246 pass，batch 4 后 250 pass（+1
+  pre-existing skip）。`useOfflineMode.test.ts` 新增 4 个 case 覆盖
+  C-19 的 4 个分支（no-executors warn / executors drain / executor
+  throw → keep with lastError / clear pending actions）。
+- **Backend test 数 +5**。RAG test file 从 2 个 case 扩到 6 个
+  （C-06 fallback dir 不写仓库 × 2 + C-07 sanitized error × 2 + C-06
+  fallback write 失败兜底 × 1）。`test_assistant_service.py` 1 个旧
+  test 改写（验证新 contract：C-06 之后 fallback 不写 tmp_path/docs/
+  assistant/）。
+
+**已结清（按 2026-07-04 round risk #1–#8 对照）：**
+
+- 风险 #1–#7 → 维持（之前 round 已 close）
+- 风险 #8（ECGFounder 外部 PR）→ 维持，无新动作
+- **新增风险 #10（sidecar data dir 卫生）**：见上文 `.data/` ignore 决策。
 - **Test 数 +39**：batch 1+2 baseline 是 207 pass，batch 3 后 246 pass（+1
   pre-existing skip）。Track M 加 27 (modelService 单元 + 5 worker 协议 +
   3 hook cache)，Track F 加 4 (B-06 listener + error path 单元)。
@@ -197,6 +238,13 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 - 待清理的本地 worktree：`../ecg-annotation-platform-track-m` / `../ecg-annotation-platform-track-f`（batch 3 worker 创建，merge 后清理）。
 - 远端功能分支仍存在：`origin/codex/continue-ecg-hardening` 指向 `efbdd04 fix: handle preflight permission errors`。
 
+## 本轮整理（2026-07-07 batch 4 C-residuals）
+
+- `fix(assistant)` (`37498b6`): C-06 RAG fallback 目录配置化 + C-07 error 响应脱敏。`RAGStore.__init__` 接受 `fallback_dir` 参数（默认 `proxy-server/.data/assistant/`），rebuild 时 fallback 写到 sidecar 数据目录而非仓库；errors[] 改为 `{filename, code}` 形式，绝对路径只进 sidecar `assistant.rag_store` WARNING log。2 个 P1 关闭。`proxy-server/assistant/rag_store.py` 增 30 行 / `proxy-server/tests/test_assistant_rag.py` 加 4 个 C-06/C-07 case / `proxy-server/tests/test_assistant_service.py` 1 个旧 case 改写。详见本文件 §batch 4 round。
+- `fix(hook)` (`01f51b9`): C-19 `useOfflineMode` 接受 `options.executors` map。无 executors 时 `syncNow` 单条可见 `console.warn` 解释如何启用,不再 silently mark failed + re-save;有 executors 时 `syncPendingActions` 真正 drain。1 个 P1 关闭。`src/hooks/useOfflineMode.ts` 增 30 行 / 新建 `src/hooks/useOfflineMode.test.ts` 4 个 case。
+- 本轮 CHANGELOG + REVIEW 重写:把 5 P0 + 23 P1 全 close + 20 P2 + 6 P3 残留的状态写进 `CHANGELOG.md` 的 2026-07-07 batch 4 C-residuals 段、`REVIEW.md` 的同标题段 + 验证结果表;同时记录 `.data/` 卫生决策 + `useOfflineMode` 无 caller 留待下一轮进 Risks 段 + 风险 #10。
+- 跟 batch 3 不同:本轮**不**走 team plan worker 模式,直接由 orchestrator 单 session 完成(改动 < 200 行,只动 2 个产品文件 + 1 个新建 test 文件 + 1 个旧 test 改写,远低于 15min worker timeout 风险)。Lesson: ≤ 3 P1 局部改动不必 spawn worker,跟 batch 3 worker 15min timeout + salvage 模式记忆一致。
+
 ## 本轮整理（2026-07-07 batch 3）
 
 - Track M（`7deacab fix(model)`）：A-06 显式三态 outcome（默认 failed 不再 silent mock）+ A-07 cache save 失败保留内存模型 + A-08 共享 MODEL_CACHE_NAMESPACE + A-09 sigmoid 不再强行 softmax + A-10 删 Worker predictWithHeatmap dead code + A-12 mockPredict 改用 pickDominantLead 不再 hardcode signal[0] + A-14 hook 复用 ModelService.buildInputTensor。worker session 在被 kill 前跑完了 `git commit`，911 insertions / 7 files。详见本文件 §batch 3 round。
@@ -235,7 +283,21 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 
 ## 验证结果
 
-### 2026-07-07 batch 3 round（本轮新增）
+### 2026-07-07 batch 4 round（本轮新增）
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm run lint` | 通过，0 errors |
+| `npm run typecheck` | 通过，0 errors |
+| `npm run test:unit` | 通过，**250/251 pass**（1 pre-existing skip；batch 3 baseline 246 → batch 4 后 250，+4 useOfflineMode tests 覆盖 C-19） |
+| `npm run test:backend` | 通过，**74 passed**（was 30 batch 1+2 baseline → batch 3 后 69 → batch 4 后 74，+5 RAG tests 覆盖 C-06 + C-07） |
+| `npm run build` | 通过，webpack compiled successfully，主入口 1.5 MiB，无 size 警告（`hints: 'error'` + `assetFilter` 双守门） |
+| `npm run check` | 全过 |
+| `npm run check:assets` | 通过，`dist/models/` 仍按预期构建 |
+| `pwsh scripts/check-bundle-budget-sync.ps1` | 通过，本轮重写后的 CHANGELOG / REVIEW 与 webpack 真值一致 |
+| `git diff --check` | 通过，0 exit |
+
+### 2026-07-07 batch 3 round（既有，仍有效）
 
 | 命令 | 结果 |
 | --- | --- |
@@ -337,16 +399,17 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 
 ## 建议下一步
 
-> 状态按 2026-07-07 batch 3 round 后的最新事实更新。
+> 状态按 2026-07-07 batch 4 round 后的最新事实更新。
 
 1. ~~更新 GitHub Pages / CI workflow~~（**2026-06-06 已完成**）。维持监听 `main` + `pull_request`，CI 跑 lint + typecheck + 前端单测 + 后端 pytest + build 三 job。
 2. ~~抽出运行配置：~~（**2026-06-06 已完成**）`src/config/env.ts` 通过 `fromEnv(name, fallback)` 统一兜底，webpack `DefinePlugin` 注入；生产部署时需明确写入 `.env` 或 shell。
 3. 给核心 UI 增加真实浏览器 e2e（**P1**）：在 `acbf4f0` + `6c7387e` 接入的 happy-dom 基础上，引入 Playwright 覆盖 Dashboard 加载、Case List → Annotation Studio、Canvas 双击/拖拽/选中删除、训练 SSE、Assistant 面板只读加载；当前 `src/__tests__/annotationWorkflow.test.tsx` 仅在 jsdom/happy-dom 中跑 Reducer + 视图派生，不替代真实浏览器证据。
-4. ~~加固 sidecar：~~（**2026-06-06 已部分完成**，CORS + 删除类确认已落；**2026-07-07 batch 1+2 完成**，D-1 路径遍历 + D-2 admin token 收口，`SIDECAR_ADMIN_TOKEN` 生产部署必填）。`scripts/check-bundle-budget-sync.ps1` 加进 preflight 防 D-3 类回归。
+4. ~~加固 sidecar：~~（**2026-06-06 已部分完成**，CORS + 删除类确认已落；**2026-07-07 batch 1+2 完成**，D-1 路径遍历 + D-2 admin token 收口，`SIDECAR_ADMIN_TOKEN` 生产部署必填）。**2026-07-07 batch 4 完成**，C-06 RAG fallback 写 `proxy-server/.data/assistant/` + C-07 error 响应脱敏为 `{filename, code}`。`scripts/check-bundle-budget-sync.ps1` 加进 preflight 防 D-3 类回归。
 5. ~~建立 bundle 预算：~~（**2026-06-06 已完成 + 2026-07-07 batch 1+2 扩展**）webpack `maxEntrypointSize: 1 600 000` + `maxAssetSize: 1 500 000` + `hints: 'error'` + `performance.assetFilter`（D-4，`b995732`），`bb85031` 把 firebase 拆 async chunk。继续通过 `ANALYZE=true npm run build` 观察 TF.js / Antd / ECharts 体积变化。
-6. 明确 demo 与生产边界（**持续**）：本轮 `10df188` + `180be1e` 让 mock 推理在导出 metadata 与 UI 上都有持久标记；batch 3 `7deacab` 让 mock 不再 silent 进入（用户必须 Modal.confirm 主动 opt-in）；`c487669` 沉淀 P0 audit 文档；`d8294d8` 沉淀 2026-07-07 全面 bug 审计报告（54 项风险地图）；生产部署前需把 `public/models/ecg-classifier/model.json` 替换为验证过的 `.pth` / TF.js bundle 并去掉 mock fallback 路径。
+6. 明确 demo 与生产边界（**持续**）：本轮 `10df188` + `180be1e` 让 mock 推理在导出 metadata 与 UI 上都有持久标记；batch 3 `7deacab` 让 mock 不再 silent 进入（用户必须 Modal.confirm 主动 opt-in）；batch 4 `fix(assistant)` 让 RAG fallback 不再写仓库（操作员能 git status 干净）；`c487669` 沉淀 P0 audit 文档；`d8294d8` 沉淀 2026-07-07 全面 bug 审计报告（54 项风险地图）；生产部署前需把 `public/models/ecg-classifier/model.json` 替换为验证过的 `.pth` / TF.js bundle 并去掉 mock fallback 路径。
 7. 在 ECGFounder 仓库继续处理 `codex/fix-param-observer-current-epoch` PR（**P1**，持续）：等上游 `PKUDigitalHealth/ECGFounder` PR #1 review/合并，并单独清点原始 `D:\ECG founder\ECGFounder` 的未提交训练代码和产物。
 8. ~~重跑 Track M + Track F worker session（**P1 残留 9 项**）~~（**2026-07-07 batch 3 已完成**）：A-06 / A-07 / A-08 / A-09 / A-10 / A-12 / A-14（7 项 model contract / cache / tensor）+ B-06 / B-07（2 项 Firebase UX）全部 close。worker session 被 team engine 15min timeout kill 后,按 memory SOP salvage 模式救回（Track M worker pre-kill 跑完 commit，Track F 由 orchestrator 代 commit）。详见本文件 §batch 3 round + Risks 段。
-9. **消化 Track C 残留（3 项 P1）**：C-06（RAG store fallback 写 `docs/assistant/knowledge-base.md` 抑制到 Sidecar 内存或后台文件）/ C-07（assistant error response 暴露绝对路径）/ C-19（`useOfflineMode.syncNow` 空 executor）。
-10. **可选：批量消化 P2 / P3**（共 26 项），按 track 分批即可，无紧迫性。
-11. **修复风险 #9（worker timeout with full `npm run check`）**：下次 plan prompt 必须显式 `--extend-timeout` 到 25-30 min，或拆小 track (≤3 P1) 让每 track 在 15 min 内可完成。或 worker 第一步先做最小 commit（"骨架"），第二步加测试，第三步加 UI 收尾，避免被 kill 时全部丢失。
+9. ~~消化 Track C 残留（**P1 残留 3 项**）~~（**2026-07-07 batch 4 已完成**）：C-06 RAG fallback 写 `proxy-server/.data/assistant/` 不再写仓库 + C-07 assistant error 响应脱敏为 `{filename, code}` + C-19 `useOfflineMode` 接受 `executors` map。详见本文件 §batch 4 round。
+10. **（新增）决定 `proxy-server/.data/` 卫生策略**（**持续**，详见风险 #10）：`batch 4` 让 RAG fallback 写到 `proxy-server/.data/assistant/`，但仓库没 `.gitignore` 规则。下一轮 batch 5 必须选 (a) 加 `.gitignore` + 接受 runtime 首次写,或 (b) 在打包脚本里 ship 预制 KB + 禁用 fallback write。建议 (a),成本最低。
+11. **可选：批量消化 P2 / P3**（共 26 项），按 track 分批即可，无紧迫性。
+12. **修复风险 #9（worker timeout with full `npm run check`）**：下次 plan prompt 必须显式 `--extend-timeout` 到 25-30 min，或拆小 track (≤3 P1) 让每 track 在 15 min 内可完成。或 worker 第一步先做最小 commit（"骨架"），第二步加测试，第三步加 UI 收尾，避免被 kill 时全部丢失。
