@@ -285,6 +285,113 @@ two P0 bug fixes, and one audit closeout doc.
   `webpack.config.js` 1 600 000 entrypoint + 1 500 000 asset budgets)
 - `git diff --check` — 0 exit
 
+### Added (2026-07-07 batch 3 P1 closeout round)
+> Closes **9 P1** from the 2026-07-07 audit (23 P1 → 14 P1 remaining).
+> Final state on main: **5 P0 + 20 P1 + 0 P2 + 0 P3 closed**.
+> Remaining: **3 P1 + 20 P2 + 6 P3** feed future rounds.
+> 246/247 unit tests pass (was 207 before batch 3; +39 tests).
+
+- **`ModelLoadOutcome` 显式三态契约** (`7deacab fix(model)`,
+  A-06): `ModelService.loadModel` returns `{ outcome: 'loaded' |
+  'mock' | 'failed', cacheWriteFailed, error? }`. Default outcome is
+  `'failed'`, never silently degrades. UI must call
+  `modelService.useMockInference()` to opt into mock mode. Existing
+  `buildDiagnosis` `unavailable` state now covers the failed path
+  end-to-end.
+- **`pickDominantLead` 多导联选择** (`7deacab`, A-12): new exported
+  pure helper picks the lead with the largest peak-to-peak amplitude.
+  `mockPredict`, `generateHeatmap`, and `useModelInference.predict`
+  all consume it instead of hardcoding `signal[0]`. A zero/empty
+  first lead no longer hides signal in other leads.
+- **`normalizeToProbabilities` sigmoid vs softmax 显式分支**
+  (`7deacab`, A-09): takes an `outputActivation: 'softmax' |
+  'sigmoid'` argument. Sigmoid outputs clamp to `[0, 1]` per label,
+  never sum-to-1. Exposed via `ModelService.setOutputActivation()`.
+- **共享 `MODEL_CACHE_NAMESPACE`** (`7deacab`, A-08): exported
+  from `modelService.ts`. `useModelInference` imports it so hook
+  and service share a single IndexedDB key namespace (was: disjoint
+  `'ecg-hook-model-'` vs `'ecg-model-cache-'` buckets).
+- **cache save failure fail-safe** (`7deacab`, A-07): cache save is
+  a separate try/catch after the in-memory model is assigned.
+  `QuotaExceededError` or any save failure logs a warning and sets
+  `cacheWriteFailed=true`; the in-memory model stays usable until
+  next cold start.
+- **Worker `predictWithHeatmap` dead code 移除** (`7deacab`, A-10):
+  the orphan `{ type: 'heatmap' }` postMessage branch had no caller
+  and produced messages after the prediction promise had already
+  resolved. Removed along with the unused `generateHeatmap` helper;
+  3 protocol tests pin against re-introduction.
+- **`buildInputTensor` hook 复用** (`7deacab`, A-14):
+  `useModelInference`'s main / cache `predict()` path now calls the
+  shared `ModelService.buildInputTensor` helper (was
+  `tf.tensor3d([signal])` — shape-incompatible with time-major and
+  4D conv heads).
+- **Firebase init 失败用户反馈** (`8a911bb fix(studio)`, B-06):
+  `firebaseService` exposes `setOnInitFailure(listener)` and
+  `getLastInitError()`. `AnnotationStudio` registers a listener on
+  mount that surfaces both a top-level `<Alert type="error">` and
+  a `message.error()` toast when init fails (was: `console.warn`
+  swallowed, 0 user feedback). Listener detaches on unmount.
+- **Cloud save 失败用户反馈 + 防抖** (`8a911bb`, B-07):
+  `saveAnnotationsToFirebase` now wraps `updateDoc` in try/catch;
+  failures emit `message.error('云端保存失败: ...')`. A `useRef`
+  5-second debounce window prevents a 1Hz save loop that fails 50
+  times in a row from spamming 50 toasts.
+
+### Changed (2026-07-07 batch 3 P1 closeout round)
+- **`AnnotationStudio.handleModelLoad`** (`7deacab`, A-06
+  companion change): no longer flips to mock mode on a silent
+  `console.warn`. Now reads `ModelLoadOutcome`, shows a
+  `Modal.confirm` when the real model is missing asking the user
+  to opt in to mock. User-declined path stays in `unavailable`
+  state for downstream `diagnosis.source: 'unavailable'` exports.
+- **`AnnotationStudio` Firebase init banner** (`8a911bb`, B-06
+  companion change): page-level red `<Alert>` is mounted when
+  `firebaseService.getLastInitError()` is non-null on mount OR
+  when the listener fires after init. The Alert is dismissible;
+  the underlying state still drives the failure flag for downstream
+  code paths.
+
+### Risks and known gaps (batch 3)
+- **Worker session timeout → salvage pattern**: both Track M and
+  Track F worker sessions exceeded the 15-minute engine cap (with
+  full lint + typecheck + test + build cycle on Windows). Track M
+  managed to `git commit` pre-kill (commit `7deacab`); Track F had
+  pending uncommitted changes that orchestrator committed on its
+  behalf as `8a911bb` per memory SOP "team plan killed ≠ 没完成 +
+  salvage uncommitted work". Lesson for future rounds: workers
+  on Windows with the full `npm run check` cycle need either
+  `--extend-timeout` to 25-30 min OR split the work into smaller
+  PRs so each fits in the cap. See `MEMORY.md` "Worker timeout +
+  salvage" entry.
+- **AnnotationStudio.tsx 双向修改合并**: Track M (line 643+ A-06
+  opt-in modal) and Track F (lines 136+ / 410+ B-06/B-07 alert +
+  save error toast) both modified this file. Auto-merge with
+  `ort` strategy resolved cleanly — no manual conflict markers
+  required. Both feature areas are in non-overlapping code paths.
+- **C-residuals 残留 3 项 P1 仍 open**: C-06 (RAG store fallback
+  writes to `docs/assistant/knowledge-base.md`), C-07 (assistant
+  error response leaks absolute file paths), C-19
+  (`useOfflineMode.syncNow` empty executor). Need a separate round.
+
+### Verification (2026-07-07 batch 3 round)
+- `npm run lint` — 0 errors
+- `npm run typecheck` — 0 errors
+- `npm run test:unit` — **246/247 pass** (1 pre-existing skip;
+  was 207 before batch 3 → +39 tests across Track M + Track F)
+- `npm run build` — webpack compiled successfully, 1.5 MiB
+  entrypoint, no size warnings (`hints: 'error'` + `assetFilter`
+  both enforce after `b995732` cherry-pick from batch 2)
+- `npm run check:assets` — 0 fail
+- `pwsh scripts/check-bundle-budget-sync.ps1` — exits 0
+- `git diff --check` — 0 exit
+- `git log` — main ahead by 4 commits from `acffecf` (batch 1+2
+  closeout base):
+  - `7deacab fix(model): A-06..A-14 (7 P1)` — Track M
+  - `e1863e4 merge: Track M`
+  - `8a911bb fix(studio): B-06/B-07 (2 P1)` — Track F
+  - `bba5196 merge: Track F`
+
 ## [0.2.0] - 2026-06-06
 
 The 2026-06-06 hardening round. Five feature / fix commits followed by

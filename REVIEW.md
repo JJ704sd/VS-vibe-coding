@@ -66,6 +66,51 @@ cherry-pick（9 个 feat + 4 个 merge + 1 个 cherry-pick，按时间顺序）�
 - 风险 #8（ECGFounder 外部 PR）→ 上游 `PKUDigitalHealth/ECGFounder`
   PR #1 状态不变；本轮无新动作。
 
+## 2026-07-07 batch 3 P1 closeout round (Track M + Track F)
+
+围绕 2026-07-07 全面 bug 审计报告里剩余的 14 项 P1（batch 1+2 之后），
+本轮落 2 个 track + 1 个 salvage 模式，落 4 个 commit（按合并顺序）：
+
+| SHA | 类型 | 摘要 |
+| --- | --- | --- |
+| `7deacab` | `fix(model)` | Track M：A-06 显式三态 + A-07 缓存失败保留 + A-08 namespace 统一 + A-09 sigmoid 归一 + A-10 删 dead code + A-12 多导联 mock + A-14 hook 复用 buildInputTensor（7 P1，911 insertions） |
+| `e1863e4` | `merge` | merge fix/track-m-model-contract into main |
+| `8a911bb` | `fix(studio)` | Track F：B-06 Firebase init 失败 Alert + toast + B-07 云端保存失败 toast + 5s 防抖（2 P1，314 insertions，orchestrator 代 commit） |
+| `bba5196` | `merge` | merge fix/track-f-firebase-ux into main |
+
+**累计 close（本 round + 之前 round）：** 全部 **5 P0** + **20 P1**（audit 23 P1 中的 20 个）。
+**3 P1 + 20 P2 + 6 P3** 仍 open，进 backlog。
+
+**本 round 残留 / 风险：**
+
+- **Worker session 15min 超时 → salvage 模式生效。** 两个 track worker 同时被
+  team engine kill（commit 完成前 / commit 后被回收）。Track M 在被 kill 前
+  跑完了 `git commit`（`7deacab`），Track F 只跑了 staged 但没 commit，按
+  memory SOP "team plan killed ≠ 没完成" 由 orchestrator 代 commit 为
+  `8a911bb`。教训：Windows 上 `npm run check` 全量 (lint + typecheck +
+  test:unit + build + check:assets) 需要 ~ 2 min，worker 还要读源码 + 写
+  测试 + commit，7-9 项 P1 的活塞不进 15 min。下轮要么 `--extend-timeout`
+  到 25-30 min，要么拆更小的 track（每 track ≤ 3 P1）。详见 MEMORY.md。
+- **AnnotationStudio.tsx 双向修改** — Track M 加 Modal（A-06 opt-in 模态）
+  和 Track F 加 Alert + 防抖 toast（B-06/B-07）都改了这个文件，但都在不同
+  code path（line 136+ / 410+ / 643+），git `ort` 自动 merge 成功，零冲突
+  标记。
+- **C-residuals 3 项 P1** 仍 open（C-06 RAG fallback 写 `docs/assistant/
+  knowledge-base.md` / C-07 assistant error 暴露绝对路径 / C-19 syncNow
+  空 executor），需要单独的 round。
+- **Test 数 +39**：batch 1+2 baseline 是 207 pass，batch 3 后 246 pass（+1
+  pre-existing skip）。Track M 加 27 (modelService 单元 + 5 worker 协议 +
+  3 hook cache)，Track F 加 4 (B-06 listener + error path 单元)。
+
+**已结清（按 2026-07-04 round risk #1–#8 对照）：**
+
+- 风险 #1–#6 → 维持（之前 round 已 close）
+- 风险 #7（文档漂移）→ 本轮 batch 3 closeout CHANGELOG + REVIEW 重写跟进
+- 风险 #8（ECGFounder 外部 PR）→ 维持，无新动作
+- **新增风险 #9：worker timeout with full `npm run check`** — 需要在 plan
+  prompt 里强制要求 worker 先做最小 commit 再继续扩展测试，避免被 kill 时
+  全部丢失
+
 ## 2026-07-04 P0 audit + canvas closeout round
 
 围绕端侧 TF.js 推理链路、Canvas 标注重构、导出 provenance、e2e 测试基础设施和文档一致性，落到 9 个 commit（按合并顺序）：
@@ -144,15 +189,22 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 ## 仓库状态
 
 - 仓库路径：`D:\VS vibe coding files\ecg-annotation-platform`
-- 当前分支：`main`（合并 `fix/d2-bundle-hygiene` 后待推送）
-- 本地 HEAD：`b995732 fix(build): D-3 sync bundle budget docs + D-4 assetFilter for async chunks`（待 merge）
-- 远端同步点：`origin/main` = `acffecf merge: Track P2`（ahead 1 commit 待推送 = `b995732` 合并后的 merge commit）
-- 当前状态：本地工作区干净（仅 CHANGELOG.md / REVIEW.md staged in `fix/d2-bundle-hygiene`），分支 ahead `origin/main`。
-- 已合并分支：`codex/continue-ecg-hardening` / `feature/env-config` / `fix/lint-after-merge` / `feature/unit-tests` / `fix/d2-bundle-hygiene`（本轮，待 merge）。
-- 已清理的本地分支：`fix/track-b-studio-state-reset` / `fix/track-p-parser-rework` / `fix/track-s-sidecar-security`（batch 1，merge 后删除）；`fix/track-m-model-contract` / `fix/track-f-firebase-ux`（batch 2，从未产出对应 commit，已自然消失）；`fix/track-d2-ci-bundle-hygiene`（batch 2，commit `d33a348` dangling 救回到 `fix/d2-bundle-hygiene`）。
+- 当前分支：`main`（合并 Track M + Track F + closeout docs 后待推送）
+- 本地 HEAD：`bba5196 merge: Track F (Firebase init error Alert + save error toast debounce: B-06/B-07, 2 P1)`（+ 待 commit 的 CHANGELOG / REVIEW closeout）
+- 远端同步点：`origin/main` = `7e2d18e merge: Track D2`（batch 1+2 closeout base），batch 3 ahead 5 commits 待推送（4 feat/merge + 1 closeout doc）
+- 当前状态：本地工作区有 CHANGELOG.md / REVIEW.md 未提交（batch 3 closeout），ahead `origin/main`。
+- 已合并分支：`codex/continue-ecg-hardening` / `feature/env-config` / `fix/lint-after-merge` / `feature/unit-tests` / `fix/d2-bundle-hygiene`（batch 1+2）/ `fix/track-m-model-contract` + `fix/track-f-firebase-ux`（batch 3）。
+- 待清理的本地 worktree：`../ecg-annotation-platform-track-m` / `../ecg-annotation-platform-track-f`（batch 3 worker 创建，merge 后清理）。
 - 远端功能分支仍存在：`origin/codex/continue-ecg-hardening` 指向 `efbdd04 fix: handle preflight permission errors`。
 
-## 本轮整理（2026-07-07）
+## 本轮整理（2026-07-07 batch 3）
+
+- Track M（`7deacab fix(model)`）：A-06 显式三态 outcome（默认 failed 不再 silent mock）+ A-07 cache save 失败保留内存模型 + A-08 共享 MODEL_CACHE_NAMESPACE + A-09 sigmoid 不再强行 softmax + A-10 删 Worker predictWithHeatmap dead code + A-12 mockPredict 改用 pickDominantLead 不再 hardcode signal[0] + A-14 hook 复用 ModelService.buildInputTensor。worker session 在被 kill 前跑完了 `git commit`，911 insertions / 7 files。详见本文件 §batch 3 round。
+- Track F（`8a911bb fix(studio)`）：B-06 firebaseService.initialize 失败用户反馈（onInitFailure listener + Alert + message.error + listener 卸载）+ B-07 updateDoc 失败 toast + 5s 防抖。worker session 被 kill 时只有 staged changes，orchestrator 按 memory SOP 代 commit，314 insertions / 3 files。详见本文件 §batch 3 round。
+- AnnotationStudio.tsx 双向修改：Track M（line 643+ A-06 opt-in modal）和 Track F（lines 136+ / 410+ B-06/B-07 alert + save error toast）自动 merge 成功，零冲突标记。
+- 本轮 CHANGELOG + REVIEW 重写：把 5 P0 + 20 P1 全 close + 3 P1 残留 + 20 P2 + 6 P3 的状态写进 `CHANGELOG.md` 的 2026-07-07 batch 3 P1 closeout 段、`REVIEW.md` 的同标题段；同时记录 worker timeout + salvage 模式进 Risks 段 + 风险 #9。
+
+## 本轮整理（2026-07-07 batch 1+2）
 
 - Track P / S / B / P2（`b61340c` / `80e55c5` / `c779107` + `575f360` / `c7faa32`）：把 2026-07-07 全面 bug 审计报告里 5 P0 + 9 P1 全 close。详细 commit-by-commit 摘要见本文件 §2026-07-07 batch 1+2 P1 closeout round。
 - Track D2 cherry-pick（`b995732`）：从 dangling commit `d33a348` 救回 D-3（`scripts/check-bundle-budget-sync.ps1`）+ D-4（webpack `performance.assetFilter`）两条 P1，cherry-pick 落到 `fix/d2-bundle-hygiene`，仅取 webpack 配置 + 新脚本，CHANGELOG / REVIEW 由本轮 closeout 重写覆盖。
@@ -183,7 +235,21 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 
 ## 验证结果
 
-### 2026-07-07 round（本轮新增）
+### 2026-07-07 batch 3 round（本轮新增）
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm run lint` | 通过，0 errors |
+| `npm run typecheck` | 通过，0 errors |
+| `npm run test:unit` | 通过，**246/247 pass**（1 pre-existing skip；batch 1+2 baseline 207 → batch 3 后 246，+39 tests 跨 Track M + Track F） |
+| `npm run test:backend` | 通过 |
+| `npm run build` | 通过，webpack compiled successfully，主入口 1.5 MiB，无 size 警告（`hints: 'error'` + `assetFilter` 双守门） |
+| `npm run check` | 全过 |
+| `npm run check:assets` | 通过，`dist/models/` 仍按预期构建 |
+| `pwsh scripts/check-bundle-budget-sync.ps1` | 通过，本轮重写后的 CHANGELOG / REVIEW 与 webpack 真值一致 |
+| `git diff --check` | 通过，0 exit |
+
+### 2026-07-07 batch 1+2 round（既有，仍有效）
 
 | 命令 | 结果 |
 | --- | --- |
@@ -271,15 +337,16 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 
 ## 建议下一步
 
-> 状态按 2026-07-07 round 后的最新事实更新。
+> 状态按 2026-07-07 batch 3 round 后的最新事实更新。
 
 1. ~~更新 GitHub Pages / CI workflow~~（**2026-06-06 已完成**）。维持监听 `main` + `pull_request`，CI 跑 lint + typecheck + 前端单测 + 后端 pytest + build 三 job。
 2. ~~抽出运行配置：~~（**2026-06-06 已完成**）`src/config/env.ts` 通过 `fromEnv(name, fallback)` 统一兜底，webpack `DefinePlugin` 注入；生产部署时需明确写入 `.env` 或 shell。
 3. 给核心 UI 增加真实浏览器 e2e（**P1**）：在 `acbf4f0` + `6c7387e` 接入的 happy-dom 基础上，引入 Playwright 覆盖 Dashboard 加载、Case List → Annotation Studio、Canvas 双击/拖拽/选中删除、训练 SSE、Assistant 面板只读加载；当前 `src/__tests__/annotationWorkflow.test.tsx` 仅在 jsdom/happy-dom 中跑 Reducer + 视图派生，不替代真实浏览器证据。
-4. ~~加固 sidecar：~~（**2026-06-06 已部分完成**，CORS + 删除类确认已落；**2026-07-07 进一步完成**，D-1 路径遍历 + D-2 admin token 收口，`SIDECAR_ADMIN_TOKEN` 生产部署必填）。`scripts/check-bundle-budget-sync.ps1` 加进 preflight 防 D-3 类回归。
-5. ~~建立 bundle 预算：~~（**2026-06-06 已完成 + 2026-07-07 扩展**）webpack `maxEntrypointSize: 1 600 000` + `maxAssetSize: 1 500 000` + `hints: 'error'` + `performance.assetFilter`（D-4，`b995732`），`bb85031` 把 firebase 拆 async chunk。继续通过 `ANALYZE=true npm run build` 观察 TF.js / Antd / ECharts 体积变化。
-6. 明确 demo 与生产边界（**持续**）：本轮 `10df188` + `180be1e` 让 mock 推理在导出 metadata 与 UI 上都有持久标记；`c487669` 沉淀 P0 audit 文档；`d8294d8` 沉淀 2026-07-07 全面 bug 审计报告（54 项风险地图）；生产部署前需把 `public/models/ecg-classifier/model.json` 替换为验证过的 `.pth` / TF.js bundle 并去掉 mock fallback 路径。
+4. ~~加固 sidecar：~~（**2026-06-06 已部分完成**，CORS + 删除类确认已落；**2026-07-07 batch 1+2 完成**，D-1 路径遍历 + D-2 admin token 收口，`SIDECAR_ADMIN_TOKEN` 生产部署必填）。`scripts/check-bundle-budget-sync.ps1` 加进 preflight 防 D-3 类回归。
+5. ~~建立 bundle 预算：~~（**2026-06-06 已完成 + 2026-07-07 batch 1+2 扩展**）webpack `maxEntrypointSize: 1 600 000` + `maxAssetSize: 1 500 000` + `hints: 'error'` + `performance.assetFilter`（D-4，`b995732`），`bb85031` 把 firebase 拆 async chunk。继续通过 `ANALYZE=true npm run build` 观察 TF.js / Antd / ECharts 体积变化。
+6. 明确 demo 与生产边界（**持续**）：本轮 `10df188` + `180be1e` 让 mock 推理在导出 metadata 与 UI 上都有持久标记；batch 3 `7deacab` 让 mock 不再 silent 进入（用户必须 Modal.confirm 主动 opt-in）；`c487669` 沉淀 P0 audit 文档；`d8294d8` 沉淀 2026-07-07 全面 bug 审计报告（54 项风险地图）；生产部署前需把 `public/models/ecg-classifier/model.json` 替换为验证过的 `.pth` / TF.js bundle 并去掉 mock fallback 路径。
 7. 在 ECGFounder 仓库继续处理 `codex/fix-param-observer-current-epoch` PR（**P1**，持续）：等上游 `PKUDigitalHealth/ECGFounder` PR #1 review/合并，并单独清点原始 `D:\ECG founder\ECGFounder` 的未提交训练代码和产物。
-8. **重跑 Track M + Track F worker session（**P1 残留 9 项**）**：A-06 / A-07 / A-08 / A-09 / A-10 / A-12 / A-14（7 项 model contract / cache / tensor 协议）+ B-06 / B-07（2 项 Firebase UX）。worker session 启动后按 "team plan killed ≠ 没完成" SOP，每完成一个 track 就 `git log fix/track-<id>` 实证 commit 落地，再发起 merge；同时给两个 worker 加 `--verify-before-completion` 钩子，避免再出现"报告完成但 commit 不存在"的假阳性。
+8. ~~重跑 Track M + Track F worker session（**P1 残留 9 项**）~~（**2026-07-07 batch 3 已完成**）：A-06 / A-07 / A-08 / A-09 / A-10 / A-12 / A-14（7 项 model contract / cache / tensor）+ B-06 / B-07（2 项 Firebase UX）全部 close。worker session 被 team engine 15min timeout kill 后,按 memory SOP salvage 模式救回（Track M worker pre-kill 跑完 commit，Track F 由 orchestrator 代 commit）。详见本文件 §batch 3 round + Risks 段。
 9. **消化 Track C 残留（3 项 P1）**：C-06（RAG store fallback 写 `docs/assistant/knowledge-base.md` 抑制到 Sidecar 内存或后台文件）/ C-07（assistant error response 暴露绝对路径）/ C-19（`useOfflineMode.syncNow` 空 executor）。
 10. **可选：批量消化 P2 / P3**（共 26 项），按 track 分批即可，无紧迫性。
+11. **修复风险 #9（worker timeout with full `npm run check`）**：下次 plan prompt 必须显式 `--extend-timeout` 到 25-30 min，或拆小 track (≤3 P1) 让每 track 在 15 min 内可完成。或 worker 第一步先做最小 commit（"骨架"），第二步加测试，第三步加 UI 收尾，避免被 kill 时全部丢失。
