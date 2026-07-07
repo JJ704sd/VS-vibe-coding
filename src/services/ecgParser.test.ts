@@ -121,3 +121,77 @@ test('parseFile returns a record with a unique id and ISO timestamp', async () =
   assert.doesNotThrow(() => new Date(first.record!.timestamp).toISOString());
   assert.doesNotThrow(() => new Date(second.record!.timestamp).toISOString());
 });
+
+// ---------------------------------------------------------------------------
+// A-05 / C-15: extension-aware routing for .hl7, .hea, .dat.
+// ---------------------------------------------------------------------------
+
+const namedFakeFile = (arrayBuffer: ArrayBuffer, name: string): File => {
+  const blob = new Blob([arrayBuffer], { type: 'application/octet-stream' });
+  // The DOM File constructor is not always available in the test runner
+  // (we use Blob + name property for portability).
+  return Object.assign(blob, { name }) as unknown as File;
+};
+
+const textFakeFile = (text: string, name: string): File => {
+  const blob = new Blob([text], { type: 'text/plain' });
+  return Object.assign(blob, { name }) as unknown as File;
+};
+
+test('A-05: parseFile routes a .hl7 file through the HL7 parser', async () => {
+  // Build a minimal HL7 ORU^R01 with one Float32 LE waveform OBX.
+  const samples = [0.1, 0.2, 0.3, 0.4];
+  const bytes = new Uint8Array(samples.length * 4);
+  const view = new DataView(bytes.buffer);
+  samples.forEach((value, i) => view.setFloat32(i * 4, value, true));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const payload = Buffer.from(binary, 'binary').toString('base64');
+  const hl7 = [
+    'MSH|^~\\&|ECG|GW|HIS|HOSP|20260707||ORU^R01|1|P|2.5',
+    `OBX|1|ED|MDC_ECG_WAVEFORM^ECG^CPT||${payload}||||||F`,
+  ].join('\r');
+
+  const result = await ecgParserService.parseFile(textFakeFile(hl7, 'ecg.hl7'));
+  assert.equal(result.success, true);
+  if (!result.success) return;
+  assert.equal(result.record!.leads.length, 1);
+  assert.equal(result.record!.leads[0].data.length, samples.length);
+});
+
+test('A-05: parseFile rejects a .hl7 file that does not parse as HL7', async () => {
+  const result = await ecgParserService.parseFile(textFakeFile('not a real HL7 message', 'bad.hl7'));
+  assert.equal(result.success, false);
+  if (result.success) return;
+  assert.equal(result.error, 'Failed to parse HL7 message');
+});
+
+test('C-15: parseFile returns a helpful error for a lone .dat file', async () => {
+  // 64 bytes of zeros — looks like a tiny .dat but no .hea sibling.
+  const datBytes = new Uint8Array(64);
+  const result = await ecgParserService.parseFile(namedFakeFile(datBytes.buffer, 'rec001.dat'));
+  assert.equal(result.success, false);
+  if (result.success) return;
+  assert.match(result.error ?? '', /requires the matching \.hea/);
+});
+
+test('C-15: parseWfdbPair produces a record from a hea + dat File pair', async () => {
+  // 1 lead, 4 samples, format 16, gain 200, sampling_rate 360.
+  const samples = [200, 400, 600, 800];
+  const header = 'r7 1 360 4\nr7.dat 16 200 12 0 0 0 0 MLII';
+  const datBytes = new Uint8Array(samples.length * 2);
+  {
+    const view = new DataView(datBytes.buffer);
+    samples.forEach((value, i) => view.setInt16(i * 2, value, true));
+  }
+  const heaFile = textFakeFile(header, 'r7.hea');
+  const datFile = namedFakeFile(datBytes.buffer, 'r7.dat');
+  const result = await ecgParserService.parseWfdbPair(heaFile, datFile);
+  assert.equal(result.success, true);
+  if (!result.success) return;
+  assert.equal(result.record!.leads.length, 1);
+  assert.equal(result.record!.samplingRate, 360);
+  // (raw / 200) mV
+  assert.equal(result.record!.leads[0].data[0], 1); // 200/200 = 1 mV
+  assert.equal(result.record!.leads[0].data[1], 2); // 400/200 = 2 mV
+});

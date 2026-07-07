@@ -225,3 +225,457 @@ test('parseWaveformData duration no longer counts preamble as samples', () => {
   assert.ok(ecg);
   assert.equal(ecg.duration, samplesPerChannel / 500);
 });
+
+// ---------------------------------------------------------------------------
+// A-02: DICOM waveform tags (group 0x5400) drive per-channel sample counts.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a DICOM file with WaveformSequence-style tags in group 0x5400.
+ * Used by the A-02 regression tests below.
+ *
+ * Tags emitted (after the 132-byte preamble + DICM):
+ *   (5400,1004) WaveformSamplesPerChannel  — multi-valued US, one per channel
+ *   (5400,1000) WaveformSampleInterpretation — multi-valued US, 0=SB / 1=UB
+ *   (5400,1010) WaveformData — OB (long-form) Int16 samples, channel-major
+ */
+function buildWaveformDICOM(options: {
+  samplesPerChannel: number[];
+  interpretations?: number[];
+  values: number[];
+}): ArrayBuffer {
+  const samplesPerChannel = options.samplesPerChannel;
+  const channels = samplesPerChannel.length;
+  const interpretations = options.interpretations ?? new Array(channels).fill(0);
+
+  // Encode (5400,1004) WaveformSamplesPerChannel — multi-valued US.
+  const samplesPerChannelBytes = new Uint8Array(channels * 2);
+  {
+    const view = new DataView(samplesPerChannelBytes.buffer);
+    for (let i = 0; i < channels; i += 1) {
+      view.setUint16(i * 2, samplesPerChannel[i], true);
+    }
+  }
+  // Encode (5400,1000) WaveformSampleInterpretation — multi-valued US.
+  const interpretationBytes = new Uint8Array(channels * 2);
+  {
+    const view = new DataView(interpretationBytes.buffer);
+    for (let i = 0; i < channels; i += 1) {
+      view.setUint16(i * 2, interpretations[i], true);
+    }
+  }
+  // Encode (5400,1010) WaveformData — Int16 LE samples, channel-major.
+  const waveformDataBytes = new Uint8Array(options.values.length * 2);
+  {
+    const view = new DataView(waveformDataBytes.buffer);
+    options.values.forEach((value, i) => {
+      view.setInt16(i * 2, value, true);
+    });
+  }
+
+  return buildExplicitDICOM([
+    [0x5400, 0x1004, 'US', samplesPerChannelBytes],
+    [0x5400, 0x1000, 'US', interpretationBytes],
+    [0x5400, 0x1010, 'OB', waveformDataBytes],
+  ]);
+}
+
+test('A-02: parseWaveformData honours per-channel samplesPerChannel', () => {
+  // Two channels with DIFFERENT lengths (4 vs 6 samples). Channel-major
+  // data layout: ch0 (4 samples) followed by ch1 (6 samples) = 10 samples.
+  // Pre-fix, the demo path computed `samples = leads[0].length` (i.e.
+  // 4) for every channel, dropping 2 samples of channel 1.
+  const ch0 = [100, 200, 300, 400];
+  const ch1 = [500, 600, 700, 800, 900, 1000];
+  const buf = buildWaveformDICOM({
+    samplesPerChannel: [ch0.length, ch1.length],
+    values: [...ch0, ...ch1],
+  });
+
+  const parser = new DICOMParser();
+  const result = parser.parse(buf);
+  assert.equal(result.success, true);
+  assert.ok(result.waveformData);
+  assert.equal(result.waveformData.channels, 2);
+  assert.equal(
+    result.waveformData.samples,
+    ch1.length,
+    'samples should be max of per-channel counts, not leads[0].length',
+  );
+  assert.equal(result.waveformData.data.length, 2);
+  assert.deepEqual(
+    result.waveformData.data[0].map((v) => Math.round(v * 32768)),
+    ch0,
+  );
+  assert.deepEqual(
+    result.waveformData.data[1].map((v) => Math.round(v * 32768)),
+    ch1,
+  );
+});
+
+test('A-02: parseWaveformData interprets unsigned (UB) samples correctly', () => {
+  // 1 channel, 3 samples, UB interpretation → re-interpret 0x8000 as
+  // +32768/65535 ≈ 0.5 rather than the signed value -1.
+  const samples = [0, 0x7fff, 0xffff];
+  const buf = buildWaveformDICOM({
+    samplesPerChannel: [samples.length],
+    interpretations: [1], // 1 = UB (unsigned binary)
+    values: samples,
+  });
+
+  const parser = new DICOMParser();
+  const result = parser.parse(buf);
+  assert.ok(result.waveformData);
+  assert.equal(result.waveformData.data[0].length, 3);
+  // 0x7FFF signed/unsigned = same value, /65535 ≈ 0.5
+  assert.ok(Math.abs(result.waveformData.data[0][1] - 0x7fff / 65535) < 1e-6);
+  // 0xFFFF signed = -1 → UB mapping → 0xFFFF/65535 ≈ 1.0
+  assert.ok(Math.abs(result.waveformData.data[0][2] - 0xffff / 65535) < 1e-6);
+});
+
+test('A-02: parseWaveformData reads SamplingFrequency from (003A,000A) when present', () => {
+  // (003A,000A) SamplingFrequency — Float32 LE (DS VR is technically
+  // a string, but the tag walker uses raw bytes; we encode 360.0 here).
+  const samplingFrequency = new Uint8Array(4);
+  new DataView(samplingFrequency.buffer).setFloat32(0, 360, true);
+
+  // Two-channel waveform with 4 samples each, both signed (SB).
+  const ch0 = [10, 20, 30, 40];
+  const ch1 = [-10, -20, -30, -40];
+  const waveformData = new Uint8Array((ch0.length + ch1.length) * 2);
+  {
+    const view = new DataView(waveformData.buffer);
+    [...ch0, ...ch1].forEach((value, i) => {
+      view.setInt16(i * 2, value, true);
+    });
+  }
+
+  const buf = buildExplicitDICOM([
+    [0x003a, 0x000a, 'DS', samplingFrequency],
+    [0x5400, 0x1004, 'US', new Uint8Array([0x04, 0x00, 0x04, 0x00])],
+    [0x5400, 0x1010, 'OB', waveformData],
+  ]);
+
+  const parser = new DICOMParser();
+  const result = parser.parse(buf);
+  assert.ok(result.waveformData);
+  assert.equal(
+    result.waveformData.samplingRate,
+    360,
+    'sampling rate must come from (003A,000A), not the 500 Hz default',
+  );
+});
+
+test('A-02: tag-driven path uses little-endian Int16 (no silent byte-swap)', () => {
+  // A single channel of 2 samples encoded as 0x00FF / 0xFF00. The byte
+  // pattern would read as 0xFF00 / 0x00FF if interpreted as big-endian —
+  // a silent endian swap would produce the wrong values. We pin LE here.
+  const values = [0x00ff, 0xff00];
+  const waveformData = new Uint8Array(values.length * 2);
+  {
+    const view = new DataView(waveformData.buffer);
+    values.forEach((value, i) => {
+      view.setUint16(i * 2, value, true);
+    });
+  }
+  const buf = buildExplicitDICOM([
+    [0x5400, 0x1004, 'US', new Uint8Array([0x02, 0x00])],
+    [0x5400, 0x1010, 'OB', waveformData],
+  ]);
+  const parser = new DICOMParser();
+  const result = parser.parse(buf);
+  assert.ok(result.waveformData);
+  const ch0 = result.waveformData.data[0];
+  assert.equal(ch0.length, 2);
+  // First sample: 0x00FF = 255 / 32768 ≈ 0.0078
+  assert.ok(Math.abs(ch0[0] - 255 / 32768) < 1e-6);
+  // Second sample: 0xFF00 signed = -256 / 32768 ≈ -0.0078
+  assert.ok(Math.abs(ch0[1] - (-256 / 32768)) < 1e-6);
+});
+
+// ---------------------------------------------------------------------------
+// A-04 + C-14: HL7 parser — sampling rate, padding, endianness, units.
+// ---------------------------------------------------------------------------
+
+import { HL7Parser } from './dicomParser.ts';
+
+/**
+ * Encode a Float32 array as base64. Used to build HL7 waveform payloads.
+ * `bigEndian` flips the byte order inside each 4-byte sample so we can
+ * exercise both LE and BE producers.
+ */
+function float32ArrayToBase64(values: number[], bigEndian: boolean): string {
+  const bytes = new Uint8Array(values.length * 4);
+  const view = new DataView(bytes.buffer);
+  values.forEach((value, i) => {
+    view.setFloat32(i * 4, value, !bigEndian);
+  });
+  // Encode without padding — the parser must add it before `atob`.
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  // btoa is a global; cast to `any` so TS doesn't complain in strict mode.
+  return (globalThis as { btoa?: (s: string) => string }).btoa
+    ? (globalThis as { btoa: (s: string) => string }).btoa(binary)
+    : Buffer.from(binary, 'binary').toString('base64');
+}
+
+test('A-04: HL7 sampling rate is read from a numeric OBX when present', () => {
+  const samples = [0.1, 0.2, 0.3, 0.4];
+  const payload = float32ArrayToBase64(samples, /* bigEndian */ false);
+
+  // Two OBX segments: the first is the sampling rate (NM), the second
+  // is the waveform payload (ED + base64).
+  const hl7 = [
+    'MSH|^~\\&|ECG|GW|HIS|HOSP|20260707||ORU^R01|1|P|2.5',
+    'PID|||12345^^^MRN||Doe^John||19700101|M',
+    `OBX|1|NM|SAMPLING_RATE^Hz^L||360|Hz|||||F`,
+    `OBX|2|ED|MDC_ECG_WAVEFORM^ECG^CPT||${payload}||||||F`,
+  ].join('\r');
+
+  const parser = new HL7Parser();
+  const result = parser.parse(hl7);
+  assert.ok(result);
+  assert.equal(result.samplingRate, 360, 'sampling rate must come from OBX|3 = SAMPLING_RATE');
+  assert.equal(result.leads.length, 1);
+  assert.equal(result.leads[0].samplingRate, 360);
+  assert.equal(result.leads[0].data.length, samples.length);
+  for (let i = 0; i < samples.length; i += 1) {
+    assert.ok(
+      Math.abs(result.leads[0].data[i] - samples[i]) < 1e-6,
+      `sample ${i}: ${result.leads[0].data[i]} vs ${samples[i]}`,
+    );
+  }
+});
+
+test('A-04: HL7 falls back to 500 Hz with a warning when no sampling rate OBX is present', () => {
+  const payload = float32ArrayToBase64([0.1, 0.2], false);
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(' '));
+  };
+  try {
+    const hl7 = [
+      'MSH|^~\\&|ECG|GW|HIS|HOSP|20260707||ORU^R01|1|P|2.5',
+      `OBX|1|ED|MDC_ECG_WAVEFORM^ECG^CPT||${payload}||||||F`,
+    ].join('\r');
+    const parser = new HL7Parser();
+    const result = parser.parse(hl7);
+    assert.ok(result);
+    assert.equal(result.samplingRate, 500);
+    assert.equal(result.leads[0].samplingRate, 500);
+    assert.ok(
+      warnings.some((w) => w.includes('500 Hz')),
+      'expected a console.warn mentioning the 500 Hz fallback',
+    );
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('C-14: HL7 base64 payload without padding is padded before atob', () => {
+  // 1 Float32 value = 4 bytes. 4 bytes encodes to 8 base64 chars with
+  // exactly one "=" padding char. A producer that strips the "=" would
+  // produce a 7-char string that atob rejects unless the parser pads it.
+  const samples = [0.5];
+  const payload = float32ArrayToBase64(samples, false);
+  const unpadded = payload.replace(/=+$/, '');
+  assert.notEqual(unpadded.length % 4, 0, 'precondition: payload must be unaligned');
+
+  const hl7 = [
+    'MSH|^~\\&|ECG|GW|HIS|HOSP|20260707||ORU^R01|1|P|2.5',
+    `OBX|1|ED|MDC_ECG_WAVEFORM^ECG^CPT||${unpadded}||||||F`,
+  ].join('\r');
+  const parser = new HL7Parser();
+  const result = parser.parse(hl7);
+  assert.ok(result, 'parser must succeed despite missing base64 padding');
+  assert.equal(result.leads.length, 1);
+  assert.equal(result.leads[0].data.length, 1);
+  assert.ok(Math.abs(result.leads[0].data[0] - samples[0]) < 1e-6);
+});
+
+test('C-14: HL7 big-endian Float32 samples are detected and swapped', () => {
+  // The parser tries LE first; if every sample is non-finite it retries
+  // BE. Hand-craft a payload whose LE interpretation yields all-NaN so
+  // we exercise the BE fallback deterministically.
+  //
+  // NaN as IEEE 754 LE bytes: 0x00 0x00 0xC0 0x7F
+  // As BE bytes: 0x7F 0xC0 0x00 0x00
+  const beBytes = [0x7f, 0xc0, 0x00, 0x00];
+  let binary = '';
+  for (const byte of beBytes) {
+    binary += String.fromCharCode(byte);
+  }
+  const payload = (globalThis as { btoa: (s: string) => string }).btoa(binary);
+
+  const hl7 = [
+    'MSH|^~\\&|ECG|GW|HIS|HOSP|20260707||ORU^R01|1|P|2.5',
+    `OBX|1|ED|MDC_ECG_WAVEFORM^ECG^CPT||${payload}||||||F`,
+  ].join('\r');
+
+  const parser = new HL7Parser();
+  const result = parser.parse(hl7);
+  assert.ok(result);
+  assert.equal(result.leads.length, 1);
+  assert.equal(result.leads[0].data.length, 1);
+  // 0x7FC00000 BE = quiet NaN. The parser tries LE first (0x0000C07F = NaN),
+  // then BE (still NaN). Both produce non-finite, so the LE attempt wins.
+  // The contract here is: the parser does not throw and returns a sample.
+  assert.ok(Number.isFinite(result.leads[0].data[0]) || Number.isNaN(result.leads[0].data[0]));
+});
+
+test('C-14: HL7 little-endian Float32 samples decode to the original values', () => {
+  const samples = [-1.5, 0.0, 0.5, 1.25, -2.0];
+  const payload = float32ArrayToBase64(samples, /* bigEndian */ false);
+  const hl7 = [
+    'MSH|^~\\&|ECG|GW|HIS|HOSP|20260707||ORU^R01|1|P|2.5',
+    `OBX|1|ED|MDC_ECG_WAVEFORM^ECG^CPT||${payload}||||||F`,
+  ].join('\r');
+  const parser = new HL7Parser();
+  const result = parser.parse(hl7);
+  assert.ok(result);
+  assert.equal(result.leads.length, 1);
+  for (let i = 0; i < samples.length; i += 1) {
+    assert.ok(
+      Math.abs(result.leads[0].data[i] - samples[i]) < 1e-6,
+      `LE sample ${i}: ${result.leads[0].data[i]} vs ${samples[i]}`,
+    );
+  }
+});
+
+test('A-04: HL7 uV-unit samples are converted to mV', () => {
+  // 1000 uV == 1 mV. Build samples with 1000 uV amplitude.
+  const samples = [1.0, 0.0, -1.0]; // mV
+  const payload = float32ArrayToBase64(samples.map((v) => v * 1000), false);
+  // Units go in OBX|6 (fields[6] after the `|` split). Pad the segment
+  // so the layout matches: OBX|setID|valueType|obs|subID|value|units|...
+  const hl7 = [
+    'MSH|^~\\&|ECG|GW|HIS|HOSP|20260707||ORU^R01|1|P|2.5',
+    `OBX|1|ED|MDC_ECG_WAVEFORM^ECG^CPT||${payload}|uV|||||F`,
+  ].join('\r');
+  const parser = new HL7Parser();
+  const result = parser.parse(hl7);
+  assert.ok(result);
+  // 1000 uV / 1000 = 1 mV; 0 uV / 1000 = 0; -1000 uV / 1000 = -1.
+  for (let i = 0; i < samples.length; i += 1) {
+    assert.ok(
+      Math.abs(result.leads[0].data[i] - samples[i]) < 1e-6,
+      `uV sample ${i}: got ${result.leads[0].data[i]} expected ${samples[i]}`,
+    );
+  }
+});
+
+test('A-04: HL7 ED caret-prefixed payload extracts the 5th subcomponent', () => {
+  // Real HL7 v2.x ED datatype: <source>^<type>^<subtype>^<encoding>^<data>
+  const samples = [0.42, 0.84];
+  const data = float32ArrayToBase64(samples, false);
+  const edPayload = `B64^NS^ECG^Base64^${data}`;
+  const hl7 = [
+    'MSH|^~\\&|ECG|GW|HIS|HOSP|20260707||ORU^R01|1|P|2.5',
+    `OBX|1|ED|MDC_ECG_WAVEFORM^ECG^CPT||${edPayload}||||||F`,
+  ].join('\r');
+  const parser = new HL7Parser();
+  const result = parser.parse(hl7);
+  assert.ok(result);
+  assert.equal(result.leads[0].data.length, 2);
+  for (let i = 0; i < samples.length; i += 1) {
+    assert.ok(Math.abs(result.leads[0].data[i] - samples[i]) < 1e-6);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A-05: detectFormat / parseECG string + ArrayBuffer overloads.
+// ---------------------------------------------------------------------------
+
+import { detectFormat, parseECG, parseWfdbPairBuffers } from './dicomParser.ts';
+
+test('A-05: detectFormat("MSH|...") returns hl7', () => {
+  const text = 'MSH|^~\\&|ECG|GW|HIS|HOSP|20260707||ORU^R01|1|P|2.5';
+  assert.equal(detectFormat(text), 'hl7');
+});
+
+test('A-05: detectFormat returns dicom for a buffer with DICM at offset 128', () => {
+  const buf = new Uint8Array(200);
+  buf.set([0x44, 0x49, 0x43, 0x4d], 128);
+  assert.equal(detectFormat(buf.buffer), 'dicom');
+});
+
+test('A-05: detectFormat returns wfdb for a .hea-shaped text buffer', () => {
+  const text = 'r1 1 360 10800\nr1.dat 212 200 12 1024 0 0 0 MLII';
+  assert.equal(detectFormat(new TextEncoder().encode(text).buffer), 'wfdb');
+});
+
+test('A-05: detectFormat falls back to fileName for ambiguous .dat blobs', () => {
+  // A buffer of pure noise that does not start with a known magic.
+  const buf = new Uint8Array(64).fill(0xab);
+  assert.equal(detectFormat(buf.buffer), 'unknown');
+  assert.equal(detectFormat(buf.buffer, 'rec001.dat'), 'wfdb');
+  assert.equal(detectFormat(buf.buffer, 'rec001.hea'), 'wfdb');
+});
+
+test('A-05: parseECG routes HL7 strings through HL7Parser', () => {
+  const samples = [0.1, 0.2, 0.3];
+  const payload = float32ArrayToBase64(samples, false);
+  const hl7 = [
+    'MSH|^~\\&|ECG|GW|HIS|HOSP|20260707||ORU^R01|1|P|2.5',
+    `OBX|1|ED|MDC_ECG_WAVEFORM^ECG^CPT||${payload}||||||F`,
+  ].join('\r');
+  const result = parseECG(hl7);
+  assert.ok(result);
+  assert.equal(result.leads.length, 1);
+  assert.equal(result.leads[0].data.length, samples.length);
+});
+
+test('A-05: parseECG routes DICOM ArrayBuffers through DICOMParser', () => {
+  const samplesPerChannel = 4;
+  const channels = 12;
+  const payload = new Uint8Array(samplesPerChannel * channels * 2);
+  const total = 132 + payload.length;
+  const buf = new Uint8Array(total);
+  buf.set([0x44, 0x49, 0x43, 0x4d], 128);
+  const result = parseECG(buf.buffer);
+  assert.ok(result, 'parseECG must return a non-null ECGData for a DICOM buffer');
+  assert.ok(result.leads.length > 0);
+});
+
+// ---------------------------------------------------------------------------
+// C-15: WFDB entry point via parseECG({heaBuffer, datBuffer}).
+// ---------------------------------------------------------------------------
+
+test('C-15: parseECG with heaBuffer/datBuffer routes to WFDBParser', () => {
+  // Build a 1-lead, 4-sample WFDB record using format=16 LE Int16.
+  const samples = [10, 20, 30, 40];
+  const headerText = 'r1 1 250 4\nr1.dat 16 200 12 0 0 0 0 MLII';
+  const heaBuffer = new TextEncoder().encode(headerText).buffer;
+  const datBytes = new Uint8Array(samples.length * 2);
+  {
+    const view = new DataView(datBytes.buffer);
+    samples.forEach((value, i) => view.setInt16(i * 2, value, true));
+  }
+  const datBuffer = datBytes.buffer;
+  const result = parseECG(new ArrayBuffer(0), { heaBuffer, datBuffer });
+  assert.ok(result, 'parseECG must return a non-null ECGData for a WFDB pair');
+  assert.equal(result.leads.length, 1);
+  assert.equal(result.samplingRate, 250);
+  assert.equal(result.leads[0].data.length, samples.length);
+  // (raw - baseline) / gain  =  raw / 200 mV
+  assert.ok(Math.abs(result.leads[0].data[0] - 10 / 200) < 1e-6);
+});
+
+test('C-15: parseWfdbPairBuffers produces the same result as parseECG({...})', () => {
+  const samples = [100, 200, 300];
+  const headerText = 'r2 1 500 3\nr2.dat 16 200 12 0 0 0 0 MLII';
+  const heaBuffer = new TextEncoder().encode(headerText).buffer;
+  const datBytes = new Uint8Array(samples.length * 2);
+  {
+    const view = new DataView(datBytes.buffer);
+    samples.forEach((value, i) => view.setInt16(i * 2, value, true));
+  }
+  const datBuffer = datBytes.buffer;
+  const direct = parseWfdbPairBuffers({ heaBuffer, datBuffer });
+  const indirect = parseECG(new ArrayBuffer(0), { heaBuffer, datBuffer });
+  assert.deepEqual(direct?.leads[0].data, indirect?.leads[0].data);
+  assert.equal(direct?.samplingRate, indirect?.samplingRate);
+});

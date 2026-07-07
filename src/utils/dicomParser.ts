@@ -270,22 +270,26 @@ export class DICOMParser {
   }
 
   private parseWaveformData(dataView: DataView): DICOMWaveformData {
-    // Demo / mock fallback: assume 12 leads, little-endian Int16, sample
-    // interleaved per channel (lead-major per DICOM Waveform convention).
-    //
-    // A real DICOM ECG would read the channel count from
-    // (003A,0005) NumberOfWaveformChannels inside the (003A,0010)
-    // Waveform Sequence and pull sample values from
-    // (5400,1010) WaveformData, but the demo DICOM does not carry those
-    // tags — we still want a deterministic parse for the waveform viewer.
-    const channels = 12;
-
     // The 128-byte preamble + 4-byte 'DICM' magic + File Meta group
     // (variable, but typically < 1 KB) live in the first ~few hundred bytes
-    // of the file and must not be folded into the sample count. The previous
-    // implementation divided total `byteLength` by 24, which inflated
-    // `samples` (and therefore `duration`) by a noticeable amount.
+    // of the file and must not be folded into the sample count.
     const headerEndOffset = this.estimateWaveformStart(dataView);
+
+    // First, try to parse real DICOM Waveform tags (group 0x5400). When
+    // present, they carry the channel count, per-channel sample counts and
+    // sample interpretation, which we MUST honour — otherwise multi-channel
+    // waveforms with heterogeneous lengths are misaligned and silent big-
+    // endian sources flip every sample.
+    const tags = this.parseWaveformTags(dataView, headerEndOffset);
+    if (tags) {
+      return this.parseWaveformFromTags(dataView, headerEndOffset, tags);
+    }
+
+    // Demo / mock fallback: assume 12 leads, little-endian Int16, sample
+    // interleaved per channel (lead-major per DICOM Waveform convention).
+    // The demo DICOM does not carry the (5400,*) tags — we still want a
+    // deterministic parse for the waveform viewer.
+    const channels = 12;
 
     const samplesPerChannel = Math.max(
       0,
@@ -302,9 +306,7 @@ export class DICOMParser {
     for (let ch = 0; ch < channels; ch++) {
       const channelData: number[] = [];
       for (let i = 0; i < samplesPerChannel; i++) {
-        // Little-endian Int16 (DICOM Waveform default) — the previous code
-        // called `getInt16(offset)` without `true`, which silently read
-        // big-endian on every host and produced garbage waveforms.
+        // Little-endian Int16 (DICOM Waveform default).
         const value = dataView.getInt16(
           headerEndOffset + (i * channels + ch) * 2,
           true,
@@ -315,6 +317,306 @@ export class DICOMParser {
     }
 
     return waveformData;
+  }
+
+  /**
+   * Look up the DICOM Waveform tags (group 0x5400) inside the dataset.
+   *
+   * Returns null when the group is absent — the caller falls back to the
+   * demo path. When present, returns per-channel `samplesPerChannel`,
+   * `bitsAllocated`, `sampleInterpretation`, and the byte offset of
+   * `WaveformData` (5400,1010).
+   *
+   * Tag reference (DICOM PS3.3 C.10.10 Waveform Module):
+   *   (5400,1000) WaveformSampleInterpretation  US, multi-valued, 1 per channel
+   *   (5400,1002) WaveformBitsAllocated         US, single value (bits)
+   *   (5400,1004) WaveformSamplesPerChannel     US, multi-valued, 1 per channel
+   *   (5400,1010) WaveformData                  OB/OW, raw samples
+   */
+  private parseWaveformTags(
+    dataView: DataView,
+    startOffset: number,
+  ): {
+    samplesPerChannel: number[];
+    bitsAllocated: number;
+    sampleInterpretation: number[]; // 0 = SB (signed), 1 = UB (unsigned)
+    sampleRate: number;
+    waveformDataOffset: number;
+    waveformDataLength: number;
+  } | null {
+    const samplesPerChannelBlocks = this.findAllTagValues(
+      dataView,
+      startOffset,
+      0x5400,
+      0x1004,
+    );
+    const sampleInterpretationBlocks = this.findAllTagValues(
+      dataView,
+      startOffset,
+      0x5400,
+      0x1000,
+    );
+    const bitsAllocatedBlock = this.findTagDataAt(
+      dataView,
+      startOffset,
+      0x5400,
+      0x1002,
+    );
+    const samplingRateBlock = this.findTagDataAt(
+      dataView,
+      startOffset,
+      0x003a,
+      0x000a,
+    );
+    const waveformDataBlock = this.findTagDataAt(
+      dataView,
+      startOffset,
+      0x5400,
+      0x1010,
+    );
+
+    // (5400,1010) WaveformData MUST exist for a real DICOM waveform.
+    if (!waveformDataBlock) {
+      return null;
+    }
+
+    const waveformDataHeader = this.findTagHeaderAt(
+      dataView,
+      startOffset,
+      0x5400,
+      0x1010,
+    );
+    if (!waveformDataHeader) {
+      return null;
+    }
+
+    // bitsAllocated defaults to 16 if absent (DICOM default per PS3.3).
+    let bitsAllocated = 16;
+    if (bitsAllocatedBlock && bitsAllocatedBlock.byteLength >= 2) {
+      bitsAllocated = new DataView(bitsAllocatedBlock).getUint16(0, true);
+    }
+
+    // samplingRate defaults to 500 Hz if absent.
+    let sampleRate = 500;
+    if (samplingRateBlock && samplingRateBlock.byteLength >= 4) {
+      const floatView = new DataView(samplingRateBlock);
+      const parsedRate = floatView.getFloat32(0, true);
+      if (Number.isFinite(parsedRate) && parsedRate > 0) {
+        sampleRate = parsedRate;
+      }
+    }
+
+    // (5400,1004) is multi-valued, one entry per channel.
+    const samplesPerChannel: number[] = [];
+    if (samplesPerChannelBlocks.length > 0) {
+      const block = samplesPerChannelBlocks[0];
+      const view = new DataView(block);
+      for (let i = 0; i + 1 < block.byteLength; i += 2) {
+        samplesPerChannel.push(view.getUint16(i, true));
+      }
+    }
+
+    // (5400,1000) is multi-valued, one entry per channel.
+    const sampleInterpretation: number[] = [];
+    if (sampleInterpretationBlocks.length > 0) {
+      const block = sampleInterpretationBlocks[0];
+      const view = new DataView(block);
+      for (let i = 0; i + 1 < block.byteLength; i += 2) {
+        sampleInterpretation.push(view.getUint16(i, true));
+      }
+    }
+
+    return {
+      samplesPerChannel,
+      bitsAllocated,
+      sampleInterpretation,
+      sampleRate,
+      waveformDataOffset: waveformDataHeader.dataOffset,
+      waveformDataLength: waveformDataHeader.length,
+    };
+  }
+
+  /**
+   * Decode samples from a WaveformData block, honouring per-channel sample
+   * counts and signed/unsigned interpretation.
+   *
+   * Layout: DICOM stores samples channel-major within WaveformData — that
+   * is, all samples for channel 0 followed by all samples for channel 1,
+   * etc. (See PS3.3 C.10.10.1.4 for the explicit statement that samples
+   * are stored sequentially for each channel.)
+   *
+   * Returns a `DICOMWaveformData` with one row per channel and each row's
+   * length matching its declared `samplesPerChannel`. Missing
+   * `samplesPerChannel` for a channel is treated as 0.
+   */
+  private parseWaveformFromTags(
+    dataView: DataView,
+    _headerEndOffset: number,
+    tags: {
+      samplesPerChannel: number[];
+      bitsAllocated: number;
+      sampleInterpretation: number[];
+      sampleRate: number;
+      waveformDataOffset: number;
+      waveformDataLength: number;
+    },
+  ): DICOMWaveformData {
+    const channels = Math.max(
+      tags.samplesPerChannel.length,
+      tags.sampleInterpretation.length,
+      1,
+    );
+    const bitsAllocated = tags.bitsAllocated;
+    const bytesPerSample = bitsAllocated > 8 ? 2 : 1;
+    const isUnsigned = (channelIndex: number): boolean => {
+      const value = tags.sampleInterpretation[channelIndex];
+      // DICOM PS3.3 enumerates:
+      //   0 = SB (signed binary), 1 = UB (unsigned binary),
+      //   2 = MB (Manchester encoded), ... — we treat 1 as unsigned.
+      return value === 1;
+    };
+
+    const data: number[][] = [];
+    let cursor = tags.waveformDataOffset;
+    const end = Math.min(
+      cursor + tags.waveformDataLength,
+      dataView.byteLength,
+    );
+    let maxSamples = 0;
+    for (let ch = 0; ch < channels; ch += 1) {
+      const declared = tags.samplesPerChannel[ch] ?? 0;
+      const channelBytes = declared * bytesPerSample;
+      const channelData: number[] = [];
+      if (cursor + channelBytes > end) {
+        // Truncated: stop early but preserve what we can read.
+        const remaining = Math.max(0, end - cursor);
+        const availableSamples = Math.floor(remaining / bytesPerSample);
+        for (let i = 0; i < availableSamples; i += 1) {
+          channelData.push(this.readSample(dataView, cursor, bytesPerSample, isUnsigned(ch)));
+          cursor += bytesPerSample;
+        }
+        data.push(channelData);
+        if (channelData.length > maxSamples) maxSamples = channelData.length;
+        break;
+      }
+      for (let i = 0; i < declared; i += 1) {
+        channelData.push(this.readSample(dataView, cursor, bytesPerSample, isUnsigned(ch)));
+        cursor += bytesPerSample;
+      }
+      data.push(channelData);
+      if (channelData.length > maxSamples) maxSamples = channelData.length;
+    }
+
+    return {
+      channels,
+      samples: maxSamples,
+      samplingRate: tags.sampleRate,
+      data,
+    };
+  }
+
+  /**
+   * Read a single waveform sample (8-bit or 16-bit) and normalise to the
+   * ±1 float range.
+   */
+  private readSample(
+    dataView: DataView,
+    offset: number,
+    bytesPerSample: number,
+    unsigned: boolean,
+  ): number {
+    if (bytesPerSample === 1) {
+      const raw = dataView.getUint8(offset);
+      return unsigned ? raw / 255 : (raw < 0x80 ? raw : raw - 0x100) / 127;
+    }
+    const raw = dataView.getInt16(offset, true);
+    if (unsigned) {
+      // Re-interpret as unsigned 16-bit.
+      const u = raw < 0 ? raw + 0x10000 : raw;
+      return u / 65535;
+    }
+    return raw / 32768;
+  }
+
+  /**
+   * Walk the dataset starting at `startOffset` and return the data buffers
+   * for every tag matching (group, element). Multi-valued DICOM attributes
+   * have a single tag header followed by `length` bytes of values; the
+   * `findTagDataAt` helper returns just the first match, so we re-walk here.
+   */
+  private findAllTagValues(
+    dataView: DataView,
+    startOffset: number,
+    group: number,
+    element: number,
+  ): ArrayBuffer[] {
+    const fileSize = dataView.byteLength;
+    const results: ArrayBuffer[] = [];
+    let offset = startOffset;
+    while (offset + 8 <= fileSize) {
+      const header = this.parseTagHeader(dataView, offset);
+      if (!header) {
+        break;
+      }
+      if (header.group === group && header.element === element) {
+        if (header.length !== 0xffffffff && header.dataOffset + header.length <= fileSize) {
+          const buffer = dataView.buffer as ArrayBuffer;
+          results.push(buffer.slice(header.dataOffset, header.dataOffset + header.length));
+        }
+      }
+      if (header.length === 0xffffffff) {
+        break;
+      }
+      offset = header.dataOffset + header.length;
+    }
+    return results;
+  }
+
+  private findTagDataAt(
+    dataView: DataView,
+    startOffset: number,
+    group: number,
+    element: number,
+  ): ArrayBuffer | null {
+    const header = this.findTagHeaderAt(dataView, startOffset, group, element);
+    if (!header) {
+      return null;
+    }
+    if (header.dataOffset + header.length > dataView.byteLength) {
+      return null;
+    }
+    const buffer = dataView.buffer as ArrayBuffer;
+    return buffer.slice(header.dataOffset, header.dataOffset + header.length);
+  }
+
+  private findTagHeaderAt(
+    dataView: DataView,
+    startOffset: number,
+    group: number,
+    element: number,
+  ): {
+    group: number;
+    element: number;
+    vr: string | null;
+    length: number;
+    dataOffset: number;
+  } | null {
+    const fileSize = dataView.byteLength;
+    let offset = startOffset;
+    while (offset + 8 <= fileSize) {
+      const header = this.parseTagHeader(dataView, offset);
+      if (!header) {
+        return null;
+      }
+      if (header.group === group && header.element === element) {
+        return header;
+      }
+      if (header.length === 0xffffffff) {
+        return null;
+      }
+      offset = header.dataOffset + header.length;
+    }
+    return null;
   }
 
   /**
@@ -709,11 +1011,108 @@ export class WFDBParser {
   }
 }
 
+/**
+ * Parse a base64-encoded Float32 sample stream into a typed array.
+ *
+ * The original implementation used `decoded.charCodeAt(i)` per byte to
+ * reconstruct a `Uint8Array`, which silently truncates any byte > 0xFF
+ * (impossible here, but still fragile). It also fed the bytes straight
+ * to `getFloat32(0)` without the `littleEndian` flag — relying on
+ * host-native endianness rather than the producer's. The result was a
+ * correct parse on little-endian hosts and a silently byte-swapped
+ * waveform on big-endian hosts.
+ *
+ * This helper:
+ *   1. Re-encodes the binary string to a Uint8Array without going
+ *      through the lossy `charCodeAt` chain.
+ *   2. Tries little-endian first (DICOM / most modern producers).
+ *   3. Falls back to big-endian if every LE sample was non-finite.
+ *   4. Returns the LE samples if neither yields all-finite results,
+ *      so the caller at least gets a deterministic decode.
+ */
+function parseFloat32Samples(decoded: string, preferBigEndian: boolean): number[] | null {
+  const byteLength = decoded.length;
+  if (byteLength < 4) {
+    return null;
+  }
+  const count = Math.floor(byteLength / 4);
+  const bytes = new Uint8Array(byteLength);
+  for (let i = 0; i < byteLength; i += 1) {
+    const code = decoded.charCodeAt(i);
+    // charCodeAt on a binary string is at most 0xFF (Latin-1 range), but
+    // some JS engines widen bytes > 0x7F to surrogate pairs; mask to be
+    // safe.
+    bytes[i] = code & 0xff;
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const primary = new Array<number>(count);
+  for (let i = 0; i < count; i += 1) {
+    primary[i] = view.getFloat32(i * 4, !preferBigEndian);
+  }
+  if (primary.every((value) => Number.isFinite(value))) {
+    return primary;
+  }
+  const swapped = new Array<number>(count);
+  for (let i = 0; i < count; i += 1) {
+    swapped[i] = view.getFloat32(i * 4, preferBigEndian);
+  }
+  if (swapped.every((value) => Number.isFinite(value))) {
+    return swapped;
+  }
+  // Both endiannesses contain at least one non-finite sample. Return LE
+  // so the caller still gets a deterministic decode; the UI can flag the
+  // NaN samples downstream.
+  return primary;
+}
+
+/**
+ * Decode a base64 string into a binary string, applying padding first so
+ * `atob` does not throw on truncated payloads. This is the public helper
+ * shared between the HL7 parser and any future caller that needs raw
+ * bytes from base64.
+ */
+function decodeBase64(input: string): string {
+  let padded = input;
+  while (padded.length % 4 !== 0) {
+    padded += '=';
+  }
+  return atob(padded);
+}
+
+/**
+ * Extract a base64 data payload from an OBX|5 cell. Real HL7 v2.x stores
+ * waveform data as the ED (Encapsulated Data) datatype with subcomponents
+ * "<source>^<type>^<subtype>^<encoding>^<data>" (e.g. "B64^NS^ECG^Base64^abcd…").
+ * For backwards compatibility we also accept the bare-base64 form.
+ */
+function extractBase64Payload(raw: string, valueType: string): string {
+  if (valueType !== 'ED') {
+    return raw;
+  }
+  if (!raw.includes('^')) {
+    return raw;
+  }
+  const parts = raw.split('^');
+  // ED has 5 subcomponents; the payload is the 5th (index 4).
+  if (parts.length >= 5 && parts[4].length > 0) {
+    return parts[4];
+  }
+  return raw;
+}
+
 export class HL7Parser {
+  /**
+   * Default sampling rate used when the message carries no explicit rate.
+   * Real ORU^R01 messages normally embed a separate OBX with value type
+   * `NM` and observation code describing the sampling frequency; we look
+   * for one but fall back to 500 Hz with a warning.
+   */
+  static readonly DEFAULT_SAMPLING_RATE = 500;
+
   parse(hl7Message: string): ECGData | null {
     try {
-      const lines = hl7Message.split('\r');
-      
+      const lines = hl7Message.split(/\r/);
+
       const segmentMap = new Map<string, string[]>();
       for (const line of lines) {
         const fields = line.split('|');
@@ -734,49 +1133,193 @@ export class HL7Parser {
       }
 
       const obxSegments = segmentMap.get('OBX') || [];
+
+      const samplingRate = this.resolveSamplingRate(obxSegments);
       const leads: ECGLead[] = [];
-      
+
       for (const obx of obxSegments) {
         const fields = obx.split('|');
-        if (fields[3]?.includes('ECG')) {
-          const waveformData = fields[5];
-          if (waveformData) {
-            const decoded = atob(waveformData);
-            const floatArray = new Float32Array(decoded.length / 4);
-            for (let i = 0; i < floatArray.length; i++) {
-              floatArray[i] = new DataView(
-                new Uint8Array([
-                  decoded.charCodeAt(i * 4),
-                  decoded.charCodeAt(i * 4 + 1),
-                  decoded.charCodeAt(i * 4 + 2),
-                  decoded.charCodeAt(i * 4 + 3)
-                ]).buffer
-              ).getFloat32(0);
-            }
-
-            leads.push({
-              name: fields[4]?.split('^')[1] || 'I',
-              data: Array.from(floatArray),
-              samplingRate: 500
-            });
-          }
+        if (!this.isWaveformOBX(fields)) {
+          continue;
         }
+        const waveformData = fields[5];
+        if (!waveformData) {
+          continue;
+        }
+
+        const valueType = fields[2] || '';
+        const payload = extractBase64Payload(waveformData, valueType);
+        if (!payload) {
+          continue;
+        }
+
+        let decoded: string;
+        try {
+          decoded = decodeBase64(payload);
+        } catch (err) {
+          console.warn('HL7 base64 decode failed:', err);
+          continue;
+        }
+
+        // Prefer little-endian (DICOM-style producers). If all samples are
+        // non-finite, the parser will retry with big-endian.
+        const samples = parseFloat32Samples(decoded, /* preferBigEndian */ false);
+        if (!samples || samples.length === 0) {
+          continue;
+        }
+
+        const units = fields[6] || '';
+        const normalised = this.applyUnits(samples, units);
+
+        const name = this.extractLeadName(fields);
+        leads.push({
+          name,
+          data: normalised,
+          samplingRate,
+        });
       }
 
       return {
         leads,
-        duration: leads[0]?.data.length ? leads[0].data.length / 500 : 0,
-        samplingRate: 500,
-        patientInfo
+        duration: leads[0]?.data.length ? leads[0].data.length / samplingRate : 0,
+        samplingRate,
+        patientInfo,
       };
     } catch (error) {
       console.error('HL7 parsing error:', error);
       return null;
     }
   }
+
+  /**
+   * Pick a sampling rate for this HL7 message.
+   *
+   * Strategy:
+   *   1. Look for any OBX with value type `NM` whose observation identifier
+   *      mentions `SAMPLING` / `FREQUENCY` / `RATE` and whose units are Hz
+   *      or are empty. Numeric value is parsed with `parseFloat`.
+   *   2. Fall back to the static `DEFAULT_SAMPLING_RATE` (500 Hz) and
+   *      emit a console warning so the operator knows.
+   */
+  private resolveSamplingRate(obxSegments: string[]): number {
+    for (const obx of obxSegments) {
+      const fields = obx.split('|');
+      const valueType = fields[2] || '';
+      const observationId = (fields[3] || '').toUpperCase();
+      if (valueType !== 'NM') {
+        continue;
+      }
+      if (
+        !observationId.includes('SAMPLING') &&
+        !observationId.includes('FREQUENCY') &&
+        !observationId.includes('RATE')
+      ) {
+        continue;
+      }
+      const raw = fields[5];
+      if (!raw) {
+        continue;
+      }
+      const parsed = parseFloat(raw);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    if (typeof console !== 'undefined') {
+      console.warn(
+        `[HL7Parser] no explicit sampling rate found; falling back to ${HL7Parser.DEFAULT_SAMPLING_RATE} Hz`,
+      );
+    }
+    return HL7Parser.DEFAULT_SAMPLING_RATE;
+  }
+
+  /**
+   * Return true when the OBX segment looks like a waveform payload.
+   *
+   * `OBX|2` (value type) of `ED` is the canonical waveform encoding; `NA`
+   * is sometimes used for numeric arrays. As a fallback we also accept any
+   * observation identifier that mentions `ECG` / `WAVEFORM`, which matches
+   * the behaviour of the previous parser and keeps backwards compatibility
+   * for in-house HL7 dialects.
+   */
+  private isWaveformOBX(fields: string[]): boolean {
+    const valueType = (fields[2] || '').toUpperCase();
+    if (valueType === 'ED' || valueType === 'NA') {
+      return true;
+    }
+    const observationId = (fields[3] || '').toUpperCase();
+    return observationId.includes('ECG') || observationId.includes('WAVEFORM');
+  }
+
+  /**
+   * Best-effort conversion of decoded samples into mV-equivalent floats.
+   * The annotation canvas expects values in the [-1, 1] range; values
+   * tagged with `uV` are divided by 1000 to land in that range. Other
+   * units pass through unchanged.
+   */
+  private applyUnits(samples: number[], units: string): number[] {
+    const normalisedUnits = units.toLowerCase();
+    if (normalisedUnits === 'uv') {
+      return samples.map((value) => value / 1000);
+    }
+    return samples;
+  }
+
+  /**
+   * Pull a lead label out of OBX|4 ("observation sub-id" / free text).
+   * The first caret-delimited component is used as the lead code when
+   * present, otherwise the raw string is used. Falls back to 'I' so the
+   * canvas always has a usable lead name.
+   */
+  private extractLeadName(fields: string[]): string {
+    const raw = fields[4] || '';
+    if (!raw) {
+      return 'I';
+    }
+    const head = raw.split('^')[0];
+    return head.trim() || 'I';
+  }
 }
 
-export function detectFormat(data: ArrayBuffer | string): 'dicom' | 'wfdb' | 'hl7' | 'json' | 'unknown' {
+/**
+ * Helper to look at the first few bytes of a binary blob as ASCII without
+ * going through TextDecoder (which would interpret them as UTF-8 and
+ * possibly substitute replacement characters).
+ */
+function readAsciiPrefix(data: ArrayBuffer, length: number): string {
+  const view = new Uint8Array(data, 0, Math.min(length, data.byteLength));
+  let result = '';
+  for (let i = 0; i < view.length; i += 1) {
+    const byte = view[i];
+    // Strip anything outside printable ASCII so the result is always a
+    // safe prefix string for magic-byte comparison.
+    if (byte >= 0x20 && byte <= 0x7e) {
+      result += String.fromCharCode(byte);
+    }
+  }
+  return result;
+}
+
+/**
+ * Format-detection entry point.
+ *
+ * String input is interpreted as text:
+ *   - "MSH" prefix → HL7 v2.x
+ *   - "{" or "["  → JSON
+ *
+ * ArrayBuffer input is sniffed at the byte level:
+ *   - "DICM" at offset 128 → DICOM (with the standard 132-byte preamble)
+ *   - Plain ASCII prefix matching `#` or `<word> <int> <float> <int>`
+ *     (i.e. a WFDB .hea record header) → WFDB
+ *   - Otherwise → unknown
+ *
+ * `fileName` is optional and only used as a hint when the binary magic
+ * is ambiguous (e.g. a `.dat` blob with no header magic).
+ */
+export function detectFormat(
+  data: ArrayBuffer | string,
+  fileName?: string,
+): 'dicom' | 'wfdb' | 'hl7' | 'json' | 'unknown' {
   if (typeof data === 'string') {
     if (data.startsWith('MSH')) {
       return 'hl7';
@@ -793,24 +1336,83 @@ export function detectFormat(data: ArrayBuffer | string): 'dicom' | 'wfdb' | 'hl
       view.getUint8(128),
       view.getUint8(129),
       view.getUint8(130),
-      view.getUint8(131)
+      view.getUint8(131),
     );
     if (preamble === 'DICM') {
       return 'dicom';
     }
   }
 
+  // WFDB .hea files start with "#" (comments) or "<record> <n> <rate> <n>"
+  // on the first non-empty line. The text content is ASCII so we can read
+  // it byte-by-byte without TextDecoder.
+  if (view.byteLength > 0) {
+    const asciiPrefix = readAsciiPrefix(data, 64).trim();
+    if (asciiPrefix.startsWith('#') || /^\S+\s+\d+\s+[\d.]+\s+\d+/.test(asciiPrefix)) {
+      return 'wfdb';
+    }
+  }
+
+  // Filename fallback: a `.dat` extension suggests WFDB even if the byte
+  // stream itself does not look like a header.
+  if (fileName) {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith('.hea') || lower.endsWith('.dat')) {
+      return 'wfdb';
+    }
+  }
+
   return 'unknown';
 }
 
-export function parseECG(data: ArrayBuffer | string): ECGData | null {
-  const format = detectFormat(data);
-  
+export interface WFDBPairInput {
+  /** WFDB header bytes. Pass the raw `.hea` ArrayBuffer (will be decoded as UTF-8). */
+  heaBuffer: ArrayBuffer;
+  /** WFDB signal bytes. Pass the raw `.dat` ArrayBuffer. */
+  datBuffer: ArrayBuffer;
+}
+
+/**
+ * Parse a WFDB record pair (.hea + .dat) given as raw byte buffers.
+ *
+ * This is the C-15 entry point that lets the unified `parseECG` function
+ * route WFDB files. The buffer-to-text conversion happens here so callers
+ * never need to deal with `TextDecoder` themselves.
+ */
+export function parseWfdbPairBuffers(input: WFDBPairInput): ECGData | null {
+  const parser = new WFDBParser();
+  const heaBytes = new Uint8Array(input.heaBuffer);
+  const heaText = new TextDecoder('utf-8', { fatal: false }).decode(heaBytes);
+  return parser.parse(heaText, input.datBuffer);
+}
+
+export function parseECG(
+  data: ArrayBuffer | string,
+  options?: { heaBuffer?: ArrayBuffer; datBuffer?: ArrayBuffer; fileName?: string },
+): ECGData | null {
+  // C-15 / A-05: support a WFDB pair passed via the options bag, even when
+  // the caller has not provided `detectFormat` magic bytes. The pair is
+  // routed straight to the WFDB parser.
+  if (options?.heaBuffer && options?.datBuffer) {
+    return parseWfdbPairBuffers({
+      heaBuffer: options.heaBuffer,
+      datBuffer: options.datBuffer,
+    });
+  }
+
+  const format = detectFormat(data, options?.fileName);
+
   switch (format) {
     case 'dicom': {
       const parser = new DICOMParser();
       const result = parser.parse(data as ArrayBuffer);
       return parser.toECGData(result);
+    }
+    case 'wfdb': {
+      // Single-buffer WFDB input is the `.hea` text itself; without a
+      // matching `.dat` the parser cannot produce samples, so we return
+      // null. Callers should prefer the `heaBuffer/datBuffer` overload.
+      return null;
     }
     case 'hl7': {
       const parser = new HL7Parser();
