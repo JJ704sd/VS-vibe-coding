@@ -1,9 +1,37 @@
 import { ModelPrediction } from '../types';
 
+/**
+ * Configuration for {@link MinimaxService.analyzeECG}.
+ *
+ * Since the C-12 fix the sidecar proxy is the **only** supported
+ * transport: the API key is read from the `MINIMAX_API_KEY` env var
+ * inside `proxy-server/main.py` and never reaches the browser. The
+ * `endpoint` / `apiKey` / `useProxy` fields are kept on the interface
+ * for backward compatibility with existing call sites, but are no
+ * longer consulted by the service.
+ */
 export interface MinimaxConfig {
-  endpoint: string;
-  apiKey: string;
+  /**
+   * Previously the user-supplied URL the service would `fetch` directly.
+   * Now ignored — all traffic is forwarded through the local
+   * `/api/ecg/analyze` sidecar route.
+   * @deprecated since 2026-07-07 (C-11). Kept for backward compatibility.
+   */
+  endpoint?: string;
+  /**
+   * Previously the user-supplied API key sent as `Authorization: Bearer`
+   * in the direct-call branch. Now ignored — the key lives in
+   * `MINIMAX_API_KEY` on the sidecar.
+   * @deprecated since 2026-07-07 (C-11). Kept for backward compatibility.
+   */
+  apiKey?: string;
+  /** Model name to send to MiniMax (default `abab6.5s-chat`). */
   model?: string;
+  /**
+   * Previously toggled between the direct API call and the proxy. After
+   * C-12 the sidecar route is the only path, so the flag is ignored.
+   * @deprecated since 2026-07-07 (C-11). Kept for backward compatibility.
+   */
   useProxy?: boolean;
 }
 
@@ -14,7 +42,6 @@ interface MinimaxResponse {
   [key: string]: unknown;
 }
 
-const DEFAULT_CLASSES = ['正常', '房颤', '室上性心动过速', '室性心动过速', '停搏'];
 const PROXY_ENDPOINT = '/api/ecg/analyze';
 type RawPredictionItem = {
   className?: string;
@@ -25,20 +52,20 @@ type RawPredictionItem = {
 
 class MinimaxService {
   /**
-   * Analyze ECG data using Minimax API.
+   * Analyze ECG data using the local proxy-server.
    *
-   * When useProxy is true, requests are sent to the local proxy server
-   * which securely forwards them to Minimax without exposing the API key.
+   * The request is forwarded to the sidecar `POST /api/ecg/analyze`
+   * route, which in turn calls MiniMax with the operator-supplied
+   * `MINIMAX_API_KEY`. The previous `useProxy=false` direct-call
+   * branch (C-11) was removed because it exposed the user-supplied
+   * API key in the browser's `Authorization` header and could be
+   * pointed at any SSRF-friendly endpoint.
    */
-  async analyzeECG(signalData: number[][], config: MinimaxConfig): Promise<ModelPrediction[]> {
-    const useProxy = config.useProxy ?? true;
-
-    if (useProxy) {
-      return this.analyzeViaProxy(signalData, config);
-    }
-
-    // Direct API call (not recommended - exposes API key)
-    return this.analyzeDirect(signalData, config);
+  async analyzeECG(
+    signalData: number[][],
+    config: MinimaxConfig = {}
+  ): Promise<ModelPrediction[]> {
+    return this.analyzeViaProxy(signalData, config);
   }
 
   private async analyzeViaProxy(
@@ -72,59 +99,6 @@ class MinimaxService {
     }
 
     throw new Error('代理返回内容中未解析到有效 predictions');
-  }
-
-  private async analyzeDirect(
-    signalData: number[][],
-    config: MinimaxConfig
-  ): Promise<ModelPrediction[]> {
-    if (!config.endpoint.trim()) {
-      throw new Error('Minimax endpoint 不能为空');
-    }
-    if (!config.apiKey.trim()) {
-      throw new Error('Minimax API Key 不能为空');
-    }
-
-    const payload = {
-      model: config.model || 'abab6.5s-chat',
-      messages: [
-        {
-          role: 'system',
-          content:
-            '你是ECG分类助手。请返回JSON对象，字段为predictions，数组元素为{className, probability}，概率总和约为1。',
-        },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            task: 'classify_ecg',
-            classes: DEFAULT_CLASSES,
-            signal: signalData,
-          }),
-        },
-      ],
-      temperature: 0.1,
-    };
-
-    const response = await fetch(config.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Minimax 调用失败: HTTP ${response.status}`);
-    }
-
-    const raw = (await response.json()) as MinimaxResponse;
-    const predictions = this.extractPredictions(raw);
-    if (predictions.length > 0) {
-      return predictions;
-    }
-
-    throw new Error('Minimax 返回内容中未解析到有效 predictions');
   }
 
   private extractPredictions(raw: MinimaxResponse): ModelPrediction[] {

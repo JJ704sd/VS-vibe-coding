@@ -15,13 +15,6 @@ const proxyConfig: MinimaxConfig = {
   useProxy: true,
 };
 
-const directConfig: MinimaxConfig = {
-  endpoint: 'https://example.com/v1/chat/completions',
-  apiKey: 'sk-test',
-  model: 'abab6.5s-chat',
-  useProxy: false,
-};
-
 test('analyzeViaProxy returns normalised predictions when fetch returns a valid payload', async () => {
   globalThis.fetch = async (url, init) => {
     assert.equal(String(url), '/api/ecg/analyze');
@@ -116,45 +109,17 @@ test('analyzeViaProxy throws when the response has no parseable predictions', as
   );
 });
 
-test('analyzeDirect throws when endpoint is missing or blank', async () => {
-  const missing: MinimaxConfig = { endpoint: '', apiKey: 'k', useProxy: false };
-  await assert.rejects(
-    () => minimaxService.analyzeECG([[0]], missing),
-    (err: unknown) => err instanceof Error && /endpoint/.test(err.message)
-  );
+// ── C-11 regression: the direct-call branch was removed ──────────────────
+//
+// Audit `2026-07-07-track-C-assistant-training-minimax.md` §4.2 found that
+// `useProxy=false` made the browser fetch a user-supplied endpoint while
+// attaching the user-supplied API key as `Authorization: Bearer <key>`.
+// That branch is gone; the tests below pin the new contract.
 
-  const whitespace: MinimaxConfig = { endpoint: '   ', apiKey: 'k', useProxy: false };
-  await assert.rejects(
-    () => minimaxService.analyzeECG([[0]], whitespace),
-    (err: unknown) => err instanceof Error && /endpoint/.test(err.message)
-  );
-});
-
-test('analyzeDirect throws when apiKey is missing or blank', async () => {
-  const missing: MinimaxConfig = { endpoint: 'https://x', apiKey: '', useProxy: false };
-  await assert.rejects(
-    () => minimaxService.analyzeECG([[0]], missing),
-    (err: unknown) => err instanceof Error && /API Key/.test(err.message)
-  );
-
-  const whitespace: MinimaxConfig = { endpoint: 'https://x', apiKey: '   ', useProxy: false };
-  await assert.rejects(
-    () => minimaxService.analyzeECG([[0]], whitespace),
-    (err: unknown) => err instanceof Error && /API Key/.test(err.message)
-  );
-});
-
-test('analyzeDirect POSTs to the user endpoint with the Bearer apiKey header', async () => {
+test('useProxy=false is ignored: the request still hits /api/ecg/analyze', async () => {
   let requestedUrl = '';
-  let requestedMethod = '';
-  let requestedHeaders: Record<string, string> = {};
-  let requestedBody: { model?: string; messages?: Array<{ role: string; content?: string }>; temperature?: number } = {};
-
-  globalThis.fetch = async (url, init) => {
+  globalThis.fetch = async (url) => {
     requestedUrl = String(url);
-    requestedMethod = String(init?.method);
-    requestedHeaders = (init?.headers as Record<string, string>) || {};
-    requestedBody = init?.body ? JSON.parse(String(init.body)) : {};
     return jsonResponse({
       predictions: [
         { className: '正常', probability: 0.5 },
@@ -163,62 +128,66 @@ test('analyzeDirect POSTs to the user endpoint with the Bearer apiKey header', a
     });
   };
 
-  const result = await minimaxService.analyzeECG([[1, 2]], directConfig);
+  // Even with `useProxy: false` and a real-looking endpoint/apiKey,
+  // the service must NOT honour them: it must route through the
+  // sidecar proxy and never include the user-supplied API key in the
+  // outbound request headers.
+  await minimaxService.analyzeECG([[0]], {
+    endpoint: 'https://attacker.example/collect',
+    apiKey: 'sk-leaked',
+    model: 'abab6.5s-chat',
+    useProxy: false,
+  });
 
-  assert.equal(requestedUrl, directConfig.endpoint);
-  assert.equal(requestedMethod, 'POST');
-  assert.equal(requestedHeaders.Authorization, 'Bearer sk-test');
+  assert.equal(requestedUrl, '/api/ecg/analyze');
+});
+
+test('analyzeECG never sends an Authorization header (useProxy path is keyless)', async () => {
+  let requestedHeaders: Record<string, string> = {};
+  globalThis.fetch = async (_url, init) => {
+    requestedHeaders = (init?.headers as Record<string, string>) || {};
+    return jsonResponse({
+      predictions: [{ className: '正常', probability: 1 }],
+    });
+  };
+
+  await minimaxService.analyzeECG([[0]], {
+    endpoint: 'https://attacker.example/collect',
+    apiKey: 'sk-leaked',
+    useProxy: true,
+  });
+
+  // The proxy route on the sidecar is responsible for the bearer token;
+  // the browser must never carry the user's API key.
+  assert.equal(requestedHeaders.Authorization, undefined);
+  assert.equal(requestedHeaders.authorization, undefined);
   assert.equal(requestedHeaders['Content-Type'], 'application/json');
-  assert.equal(requestedBody.model, 'abab6.5s-chat');
-  assert.equal(Array.isArray(requestedBody.messages), true);
-  assert.equal(requestedBody.messages?.[0]?.role, 'system');
-  assert.equal(requestedBody.messages?.[1]?.role, 'user');
-  assert.equal(requestedBody.temperature, 0.1);
-  // Two predictions, normalised, sorted desc.
-  assert.equal(result.length, 2);
-  assert.equal(result[0].probability, 0.5);
-  assert.equal(result[1].probability, 0.5);
 });
 
-test('analyzeDirect normalises raw predictions with label/score keys and sorts them by probability', async () => {
-  globalThis.fetch = async () =>
-    jsonResponse({
-      predictions: [
-        { label: '正常', score: 0.2 },
-        { label: '房颤', score: 0.5 },
-        { label: '停搏', score: 0.3 },
-      ],
+test('analyzeECG works with an empty config (only model is required)', async () => {
+  globalThis.fetch = async (url, init) => {
+    // No `model` in the config → default `abab6.5s-chat` is used.
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.model, 'abab6.5s-chat');
+    return jsonResponse({
+      predictions: [{ className: '正常', probability: 1 }],
     });
+  };
 
-  const result = await minimaxService.analyzeECG([[0]], directConfig);
-
-  assert.equal(result.length, 3);
-  // Sorted by probability desc.
-  assert.equal(result[0].className, '房颤');
-  assert.equal(result[1].className, '停搏');
-  assert.equal(result[2].className, '正常');
-  // Total normalised to 1.
-  const total = result.reduce((s, p) => s + p.probability, 0);
-  assert.ok(Math.abs(total - 1) < 1e-9);
-  assert.ok(Math.abs(result[0].probability - 0.5) < 1e-9);
-  assert.ok(Math.abs(result[1].probability - 0.3) < 1e-9);
-  assert.ok(Math.abs(result[2].probability - 0.2) < 1e-9);
+  const result = await minimaxService.analyzeECG([[0]], {});
+  assert.equal(result.length, 1);
+  assert.equal(result[0].className, '正常');
 });
 
-test('analyzeDirect leaves probabilities unchanged when the total is zero (all-zero input)', async () => {
-  globalThis.fetch = async () =>
-    jsonResponse({
-      predictions: [
-        { className: 'A', probability: 0 },
-        { className: 'B', probability: 0 },
-      ],
+test('analyzeECG accepts a model override without endpoint/apiKey', async () => {
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.model, 'minimax-text-01');
+    return jsonResponse({
+      predictions: [{ className: '正常', probability: 1 }],
     });
+  };
 
-  const result = await minimaxService.analyzeECG([[0]], directConfig);
-  assert.equal(result.length, 2);
-  assert.equal(result[0].probability, 0);
-  assert.equal(result[1].probability, 0);
-  // Order is stable when probabilities are equal.
-  assert.equal(result[0].className, 'A');
-  assert.equal(result[1].className, 'B');
+  const result = await minimaxService.analyzeECG([[0]], { model: 'minimax-text-01' });
+  assert.equal(result.length, 1);
 });

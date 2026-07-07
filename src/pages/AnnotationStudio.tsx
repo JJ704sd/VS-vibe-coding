@@ -620,30 +620,19 @@ const AnnotationStudio: React.FC = () => {
   };
 
   const handleMinimaxAnalyze = async (): Promise<void> => {
-    const hasDirectConfig = minimaxEndpoint.trim() && minimaxApiKey.trim();
-    const useProxy = !hasDirectConfig;
-
-    if (!useProxy && (!minimaxEndpoint.trim() || !minimaxApiKey.trim())) {
-      message.warning('请先填写 Minimax Endpoint 和 API Key');
-      return;
-    }
-
+    // C-11 fix: the `useProxy=false` direct-call branch was removed
+    // because it forwarded the user-supplied API key to a user-supplied
+    // endpoint (SSRF + key exfiltration). All Minimax traffic now goes
+    // through the sidecar proxy, where the API key lives in
+    // `MINIMAX_API_KEY` and never reaches the browser.
     setMinimaxLoading(true);
     try {
       const signalData = leads.map((lead) => lead.data);
-
-      // Determine if we should use proxy or direct API
-      const hasDirectConfig = minimaxEndpoint.trim() && minimaxApiKey.trim();
-      const useProxy = !hasDirectConfig;
-
       const predictions = await minimaxService.analyzeECG(signalData, {
-        endpoint: minimaxEndpoint.trim(),
-        apiKey: minimaxApiKey.trim(),
         model: minimaxModel.trim() || undefined,
-        useProxy,
       });
       dispatch(setInferenceResults(predictions));
-      message.success(useProxy ? 'Minimax 分析完成（通过代理）' : 'Minimax 分析完成');
+      message.success('Minimax 分析完成（通过代理）');
     } catch (error) {
       message.error(error instanceof Error ? error.message : 'Minimax 分析失败');
     } finally {
