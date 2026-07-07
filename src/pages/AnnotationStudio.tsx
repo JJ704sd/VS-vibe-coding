@@ -106,6 +106,13 @@ const AnnotationStudio: React.FC = () => {
   const [leads, setLeads] = useState<ECGLead[]>(() =>
     INITIAL_DEMO_LEADS.map((lead) => ({ ...lead, data: [...lead.data] }))
   );
+  // Mirror currentRecordId into a ref so the Firebase save debounce effect
+  // (see useEffect([annotations, currentRecordId, ...]) below) can verify at
+  // fire-time that the recordId it captured at schedule-time is still the
+  // active one. Without this, a URL switch from record A → record B during
+  // the 1s debounce window would write A's annotations into B's Firestore
+  // document (audit B-04).
+  const currentRecordIdRef = useRef<string>('');
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -130,19 +137,51 @@ const AnnotationStudio: React.FC = () => {
   const [playbackStep, setPlaybackStep] = useState(24);
   const [playbackWindowSize, setPlaybackWindowSize] = useState(DEFAULT_PLAYBACK_WINDOW);
 
+  // Drop every piece of per-record state. Used by:
+  //   1. The URL-switch effect below (B-03) when navigating from one record
+  //      to another, so the previous record's annotations / AI results /
+  //      waveform do not leak into the new record's canvas or exports.
+  //   2. applyImportedLeads (B-05) when a fresh import replaces the current
+  //      record's waveform.
+  //   3. Anywhere else that needs to start a record from a clean slate.
+  // Model-loading flags (modelLoading / modelLoaded) are intentionally kept
+  // — the loaded model is a one-time cost, not per-record.
+  const resetRecordState = useCallback((): void => {
+    dispatch(setAnnotations([]));
+    dispatch(setInferenceResults([]));
+    sourceLeadsRef.current = [];
+    setPlaybackCursor(0);
+    setLeads([]);
+  }, [dispatch]);
+
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const nextPatientId = params.get('patientId')?.trim();
     const nextRecordId = routeRecordId?.trim() || params.get('recordId')?.trim();
 
+    if (nextRecordId && nextRecordId !== currentRecordId) {
+      // Navigating to a different record invalidates every piece of
+      // per-record state: previous annotations, AI results, source
+      // waveform, playback cursor, and the visible leads. Without this,
+      // the old record's data would still be on the canvas and exported
+      // JSON/CSV (audit B-03). The Firebase save debounce effect (B-04)
+      // also relies on annotations being cleared here before its
+      // setTimeout can fire with the previous record's payload.
+      resetRecordState();
+      setCurrentRecordId(nextRecordId);
+    }
+
     if (nextPatientId) {
       setCurrentPatientId(nextPatientId);
     }
+  }, [location.search, routeRecordId, currentRecordId, resetRecordState]);
 
-    if (nextRecordId) {
-      setCurrentRecordId(nextRecordId);
-    }
-  }, [location.search, routeRecordId]);
+  // Keep currentRecordIdRef in lock-step with the React state so the
+  // Firebase save debounce effect can read the latest value from inside its
+  // setTimeout callback (which otherwise closes over a stale value).
+  useEffect(() => {
+    currentRecordIdRef.current = currentRecordId;
+  }, [currentRecordId]);
 
   // Kick off the lazy Firebase SDK load as soon as the workbench mounts.
   // The chunk is fetched in parallel with the rest of the page render and
@@ -209,16 +248,18 @@ const AnnotationStudio: React.FC = () => {
       setCurrentRecordId(context.recordId);
     }
 
-    // Importing a new record invalidates any annotations tied to the previous
-    // record's logical canvas coordinates. Drop them from Redux; ECGCanvas's
-    // useEffect([annotations]) will then re-derive the Fabric annotation
-    // objects to match the empty array. Without this, old annotation circles
-    // would still float above the new waveform and exported JSON / CSV would
-    // mix annotations from two different records.
-    dispatch(setAnnotations([]));
+    // Importing a new record invalidates every piece of per-record state.
+    // - C-01 (prior fix) dropped annotations so they would not float above
+    //   the new waveform or leak into the exported JSON/CSV.
+    // - B-05 extends that to inferenceResults: without dropping the old
+    //   AI labels, SignalMetrics keeps showing the previous record's
+    //   diagnosis (and the MOCK chip) above the new waveform, and the
+    //   next export's diagnosis carries a stale label/confidence.
+    // resetRecordState() also clears sourceLeadsRef / leads / playbackCursor
+    // — we re-derive those from the imported leads immediately below.
+    resetRecordState();
 
     sourceLeadsRef.current = cloneLeads(nextLeads);
-    setPlaybackCursor(0);
     if (!nextLeads.some((lead) => lead.name === analysisLeadName)) {
       setAnalysisLeadName(nextLeads[0].name);
     }
@@ -317,8 +358,17 @@ const AnnotationStudio: React.FC = () => {
 
   useEffect(() => {
     if (!currentRecordId || currentRecordId.startsWith('local-')) return;
+    // Capture the recordId at schedule-time. If the URL switches to a
+    // different record during the 1s debounce window, the captured value
+    // diverges from the ref-tracked active recordId and we drop the save
+    // — otherwise we would write the previous record's annotations into
+    // the new record's Firestore document (audit B-04).
+    const capturedRecordId = currentRecordId;
     const timeoutId = setTimeout(() => {
-      saveAnnotationsToFirebase(currentRecordId, annotations);
+      if (currentRecordIdRef.current !== capturedRecordId) {
+        return;
+      }
+      saveAnnotationsToFirebase(capturedRecordId, annotations);
     }, 1000); // Debounce saves by 1 second
     return () => clearTimeout(timeoutId);
   }, [annotations, currentRecordId, saveAnnotationsToFirebase]);
