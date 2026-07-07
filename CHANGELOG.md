@@ -456,7 +456,7 @@ two P0 bug fixes, and one audit closeout doc.
   "hook shape" risk, not the "no caller exists" risk (the latter is a
   product decision that belongs in a follow-up round, not in a P1
   closeout).
-- **Sidecar data dir lifecycle**: `proxy-server/.data/assistant/` is
+- ~~**Sidecar data dir lifecycle**: `proxy-server/.data/assistant/` is
   created on first `rebuild()` when no docs are present. The directory is
   not gitignored today (the repo does not yet have a `.data` ignore rule
   for it). For a real deployment the operator should either:
@@ -465,7 +465,13 @@ two P0 bug fixes, and one audit closeout doc.
   (2) add `proxy-server/.data/` to `.gitignore` and accept the runtime
       write on first use. The batch 5 closeout will pick the right
       answer once product decides whether the sidecar is single-tenant
-      demo or multi-tenant production.
+      demo or multi-tenant production.~~ — **2026-07-07 batch 5 校正**:
+  经 `git blame .gitignore` + `git check-ignore -v` 实证,该条为误报。
+  `.gitignore` line 19 自 `22cdf3b` (2026-05-23, Codex hardening round)
+  已包含 `proxy-server/.data/`,C-06 fallback 默认目录
+  `proxy-server/.data/assistant/` 一直在 ignored 集合内,`git status`
+  不会污染。无需新 ignore 规则,无需 batch 5 决策。REVIEW.md 同步
+  校正 §batch 4 round / 风险 #10 / 本轮整理 / 建议下一步 #10。
 
 ### Verification (2026-07-07 batch 4 round)
 - `npm run lint` — 0 errors

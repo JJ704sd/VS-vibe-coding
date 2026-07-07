@@ -120,10 +120,13 @@ cherry-pick（9 个 feat + 4 个 merge + 1 个 cherry-pick，按时间顺序）�
   一致。这是有意 scope cut：C-19 风险点是"hook shape 设计错误"，
   "无 caller"是产品决策（不归 P1 closeout 管），下一轮按需接 case list
   / annotation create 的真实 executor。
-- **`proxy-server/.data/assistant/` 不在 `.gitignore`**。首次 rebuild 写
-  fallback 时会在 sidecar 目录落一个 `knowledge-base.md`。生产部署前
-  需在 `.gitignore` 加 `proxy-server/.data/`（或随包 ship 预制 KB
-  并禁用 fallback write），下一轮 round 5 决策。
+- ~~**`proxy-server/.data/assistant/` 不在 `.gitignore`**~~ — **误报，已结清**。
+  实际 `.gitignore` line 19 已经有 `proxy-server/.data/`(Codex 在 `22cdf3b` /
+  2026-05-23 hardening round 加的),C-06 默认 fallback 目录
+  `proxy-server/.data/assistant/` 一直被忽略,`git status` 不会污染。
+  本条原本是 batch 4 closeout 时设的待办决策项,经 git blame + ls-files
+  实证后撤回。详见风险 #10 与 CHANGELOG `Risks and known gaps (batch 4)`
+  段对应改写。
 - **Test 数 +4**。batch 3 baseline 246 pass，batch 4 后 250 pass（+1
   pre-existing skip）。`useOfflineMode.test.ts` 新增 4 个 case 覆盖
   C-19 的 4 个分支（no-executors warn / executors drain / executor
@@ -138,7 +141,10 @@ cherry-pick（9 个 feat + 4 个 merge + 1 个 cherry-pick，按时间顺序）�
 
 - 风险 #1–#7 → 维持（之前 round 已 close）
 - 风险 #8（ECGFounder 外部 PR）→ 维持，无新动作
-- **新增风险 #10（sidecar data dir 卫生）**：见上文 `.data/` ignore 决策。
+- ~~**新增风险 #10（sidecar data dir 卫生）**~~：**误报，已结清** — 经
+  git blame 实证 `.gitignore` line 19 `proxy-server/.data/` 由 `22cdf3b`
+  (2026-05-23) 加入,C-06 fallback 默认目录 `proxy-server/.data/assistant/`
+  一直在 ignored 集合内,无需新增 ignore 规则或 round 5 决策。
 - **Test 数 +39**：batch 1+2 baseline 是 207 pass，batch 3 后 246 pass（+1
   pre-existing skip）。Track M 加 27 (modelService 单元 + 5 worker 协议 +
   3 hook cache)，Track F 加 4 (B-06 listener + error path 单元)。
@@ -242,7 +248,7 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 
 - `fix(assistant)` (`37498b6`): C-06 RAG fallback 目录配置化 + C-07 error 响应脱敏。`RAGStore.__init__` 接受 `fallback_dir` 参数（默认 `proxy-server/.data/assistant/`），rebuild 时 fallback 写到 sidecar 数据目录而非仓库；errors[] 改为 `{filename, code}` 形式，绝对路径只进 sidecar `assistant.rag_store` WARNING log。2 个 P1 关闭。`proxy-server/assistant/rag_store.py` 增 30 行 / `proxy-server/tests/test_assistant_rag.py` 加 4 个 C-06/C-07 case / `proxy-server/tests/test_assistant_service.py` 1 个旧 case 改写。详见本文件 §batch 4 round。
 - `fix(hook)` (`01f51b9`): C-19 `useOfflineMode` 接受 `options.executors` map。无 executors 时 `syncNow` 单条可见 `console.warn` 解释如何启用,不再 silently mark failed + re-save;有 executors 时 `syncPendingActions` 真正 drain。1 个 P1 关闭。`src/hooks/useOfflineMode.ts` 增 30 行 / 新建 `src/hooks/useOfflineMode.test.ts` 4 个 case。
-- 本轮 CHANGELOG + REVIEW 重写:把 5 P0 + 23 P1 全 close + 20 P2 + 6 P3 残留的状态写进 `CHANGELOG.md` 的 2026-07-07 batch 4 C-residuals 段、`REVIEW.md` 的同标题段 + 验证结果表;同时记录 `.data/` 卫生决策 + `useOfflineMode` 无 caller 留待下一轮进 Risks 段 + 风险 #10。
+- 本轮 CHANGELOG + REVIEW 重写:把 5 P0 + 23 P1 全 close + 20 P2 + 6 P3 残留的状态写进 `CHANGELOG.md` 的 2026-07-07 batch 4 C-residuals 段、`REVIEW.md` 的同标题段 + 验证结果表;同时把 `useOfflineMode` 无 caller 留待下一轮进 Risks 段。风险 #10 (`.data/` 卫生) **经 git blame 实证为误报** —— `.gitignore` line 19 自 `22cdf3b` 已包含 `proxy-server/.data/`,本条后续跟进在 batch 5 closeout 校正。
 - 跟 batch 3 不同:本轮**不**走 team plan worker 模式,直接由 orchestrator 单 session 完成(改动 < 200 行,只动 2 个产品文件 + 1 个新建 test 文件 + 1 个旧 test 改写,远低于 15min worker timeout 风险)。Lesson: ≤ 3 P1 局部改动不必 spawn worker,跟 batch 3 worker 15min timeout + salvage 模式记忆一致。
 
 ## 本轮整理（2026-07-07 batch 3）
@@ -410,6 +416,6 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 7. 在 ECGFounder 仓库继续处理 `codex/fix-param-observer-current-epoch` PR（**P1**，持续）：等上游 `PKUDigitalHealth/ECGFounder` PR #1 review/合并，并单独清点原始 `D:\ECG founder\ECGFounder` 的未提交训练代码和产物。
 8. ~~重跑 Track M + Track F worker session（**P1 残留 9 项**）~~（**2026-07-07 batch 3 已完成**）：A-06 / A-07 / A-08 / A-09 / A-10 / A-12 / A-14（7 项 model contract / cache / tensor）+ B-06 / B-07（2 项 Firebase UX）全部 close。worker session 被 team engine 15min timeout kill 后,按 memory SOP salvage 模式救回（Track M worker pre-kill 跑完 commit，Track F 由 orchestrator 代 commit）。详见本文件 §batch 3 round + Risks 段。
 9. ~~消化 Track C 残留（**P1 残留 3 项**）~~（**2026-07-07 batch 4 已完成**）：C-06 RAG fallback 写 `proxy-server/.data/assistant/` 不再写仓库 + C-07 assistant error 响应脱敏为 `{filename, code}` + C-19 `useOfflineMode` 接受 `executors` map。详见本文件 §batch 4 round。
-10. **（新增）决定 `proxy-server/.data/` 卫生策略**（**持续**，详见风险 #10）：`batch 4` 让 RAG fallback 写到 `proxy-server/.data/assistant/`，但仓库没 `.gitignore` 规则。下一轮 batch 5 必须选 (a) 加 `.gitignore` + 接受 runtime 首次写,或 (b) 在打包脚本里 ship 预制 KB + 禁用 fallback write。建议 (a),成本最低。
+10. ~~**（新增）决定 `proxy-server/.data/` 卫生策略**（**持续**，详见风险 #10）~~：**2026-07-07 batch 5 closeout 校正** — 风险 #10 经 `git blame .gitignore` + `git ls-files --error-unmatch` 实证为误报,`.gitignore` line 19 自 `22cdf3b` (2026-05-23 hardening round) 已包含 `proxy-server/.data/`,`proxy-server/.data/assistant/` 一直在 ignored 集合内,无需新 ignore 规则或 round 5 决策。`batch 4` closeout 文档 (REVIEW §batch 4 round + 风险 #10 + 本轮整理 + CHANGELOG `Risks and known gaps (batch 4)` §Sidecar data dir lifecycle + 建议下一步 #10) 已同步撤回该条 forward-looking 项。
 11. **可选：批量消化 P2 / P3**（共 26 项），按 track 分批即可，无紧迫性。
 12. **修复风险 #9（worker timeout with full `npm run check`）**：下次 plan prompt 必须显式 `--extend-timeout` 到 25-30 min，或拆小 track (≤3 P1) 让每 track 在 15 min 内可完成。或 worker 第一步先做最小 commit（"骨架"），第二步加测试，第三步加 UI 收尾，避免被 kill 时全部丢失。
