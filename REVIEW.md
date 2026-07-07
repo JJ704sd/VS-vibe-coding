@@ -108,7 +108,7 @@ cherry-pick（9 个 feat + 4 个 merge + 1 个 cherry-pick，按时间顺序）�
 | --- | --- | --- |
 | `37498b6` | `fix(assistant)` | C-06 RAG fallback 写 `proxy-server/.data/assistant/` 不再写仓库 + C-07 error 响应脱敏为 `{filename, code}`（2 P1） |
 | `01f51b9` | `fix(hook)` | C-19 `useOfflineMode` 接受 `options.executors` 入参；无 executor 时单条可见 warn，不再 silently mark failed（1 P1） |
-| `<docs-commit-sha>` | `docs(closeout)` | batch 4 closeout：CHANGELOG + REVIEW 重写跟进 |
+| `9735bc7` | `docs(closeout)` | batch 4 closeout：CHANGELOG + REVIEW 重写跟进 |
 
 **累计 close（本 round + 之前 round）：** 全部 **5 P0 + 23 P1**（audit 23 P1
 中的 23 个，已 100% close）。**20 P2 + 6 P3** 仍 open，进 backlog。
