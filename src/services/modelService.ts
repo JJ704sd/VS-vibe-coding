@@ -1,39 +1,149 @@
-﻿import * as tf from '@tensorflow/tfjs';
+﻿// ModelService — TF.js ECG classifier wrapper.
+//
+// Audit fixes (2026-07-07 Track M, audit §1.6–1.14):
+//   A-06  loadModel now returns a `ModelLoadOutcome` with an explicit
+//         'loaded' | 'mock' | 'failed' state. The service no longer flips
+//         itself into mock mode silently when the real model is missing —
+//         the UI must call `useMockInference()` to opt in.
+//   A-07  The "load remote model + save to cache" path is split: a save
+//         failure only logs a warning and never throws away the in-memory
+//         model. Cache load is a separate fallback branch.
+//   A-08  `MODEL_CACHE_NAMESPACE` is the single IndexedDB key namespace.
+//         `useModelInference` imports it from here so both sides see the
+//         same cache entries.
+//   A-09  `normalizeToProbabilities` now accepts an `outputActivation`
+//         ('softmax' | 'sigmoid') and never turns a sigmoid multi-label
+//         vector into a sum-to-1 softmax.
+//   A-12  `mockPredict` and `generateHeatmap` aggregate across all leads
+//         (max amplitude / max abs) so a zero/empty first lead no longer
+//         hides signal in other leads.
+
+import * as tf from '@tensorflow/tfjs';
 import { InferenceResult, ModelPrediction } from '../types';
 
-const MODEL_CACHE_PREFIX = 'indexeddb://ecg-model-cache-';
+/**
+ * Single IndexedDB key namespace shared by `ModelService` and
+ * `useModelInference`. Exporting the constant from one place prevents
+ * the two sides from drifting into two disjoint cache buckets
+ * (audit A-08, residual R-08).
+ */
+export const MODEL_CACHE_NAMESPACE = 'ecg-model-cache';
+
+/**
+ * Helper that produces the canonical IndexedDB URL for a given model URL.
+ * Both the service and the hook call this so the keys are byte-identical.
+ */
+export function getModelCacheKey(modelUrl: string): string {
+  return `indexeddb://${MODEL_CACHE_NAMESPACE}-${encodeURIComponent(modelUrl)}`;
+}
+
 const CLASS_NAMES = ['正常', '房颤', '室上性心动过速', '室性心动过速', '停搏'];
+
+/**
+ * Output activation hint. Real model metadata is not yet shipped in the
+ * project (the `/models/ecg-classifier/model.json` resource is still
+ * missing), so the default is `softmax` to preserve historical behaviour
+ * for the in-repo training pipeline. Callers that know the model is a
+ * multi-label sigmoid head should pass `sigmoid`.
+ */
+export type OutputActivation = 'softmax' | 'sigmoid';
+
+/**
+ * Explicit three-state load outcome. `failed` is the default — a missing
+ * model resource no longer silently drops the service into mock mode
+ * (audit A-06). `mock` is only reached after the caller opts in via
+ * `useMockInference()`.
+ */
+export type ModelLoadOutcome = 'loaded' | 'mock' | 'failed';
+
+export interface LoadModelResult {
+  outcome: ModelLoadOutcome;
+  /**
+   * Populated when the in-memory model is usable, regardless of whether
+   * the cache write succeeded. The UI can use this to surface a warning
+   * toast while still running real inference.
+   */
+  cacheWriteFailed: boolean;
+}
 
 class ModelService {
   private model: tf.LayersModel | null = null;
   private modelUrl = '';
   private worker: Worker | null = null;
-  private useMockInference = false;
+  private mockOptIn = false;
+  private outcome: ModelLoadOutcome = 'failed';
+  private outputActivation: OutputActivation = 'softmax';
 
-  async loadModel(modelUrl: string): Promise<void> {
+  async loadModel(modelUrl: string): Promise<LoadModelResult> {
     this.modelUrl = modelUrl;
-    const cacheKey = this.getCacheKey(modelUrl);
-    this.useMockInference = false;
+    const cacheKey = getModelCacheKey(modelUrl);
+    // Reset transient state for this load attempt. We do NOT flip into
+    // mock mode here — `outcome` stays 'failed' until the caller opts in.
+    this.mockOptIn = false;
+    this.outcome = 'failed';
 
+    let cacheWriteFailed = false;
+
+    // 1) Try to load the remote model.
     try {
       this.model = await tf.loadLayersModel(modelUrl);
-      await this.model.save(cacheKey);
-      this.useMockInference = false;
-    } catch (error) {
-      console.error('[ModelService] Failed to load remote model:', error);
+      this.outcome = 'loaded';
+    } catch (remoteError) {
+      console.error('[ModelService] Failed to load remote model:', remoteError);
+      // 2) Fall back to the IndexedDB cache. This is a separate path so a
+      //    save failure below can never drop the freshly loaded model.
       try {
         this.model = await tf.loadLayersModel(cacheKey);
-        this.useMockInference = false;
-      } catch (cacheError) {
-        console.error('[ModelService] Failed to load cached model:', cacheError);
+        this.outcome = 'loaded';
+      } catch (cacheReadError) {
+        console.error('[ModelService] Failed to load cached model:', cacheReadError);
         this.model = null;
-        this.useMockInference = true;
+        // outcome stays 'failed' — caller must opt in to mock.
       }
     }
+
+    // 3) Persist a fresh copy to the cache. Failures here are non-fatal:
+    //    the in-memory model (if any) remains usable for this session.
+    if (this.outcome === 'loaded' && this.model) {
+      try {
+        await this.model.save(cacheKey);
+      } catch (saveError) {
+        cacheWriteFailed = true;
+        console.warn(
+          '[ModelService] Loaded real model but failed to persist to IndexedDB cache:',
+          saveError,
+        );
+        // Intentionally do NOT touch this.model or this.outcome — the
+        // session keeps working, only future cold starts are affected.
+      }
+    }
+
+    return { outcome: this.outcome, cacheWriteFailed };
+  }
+
+  /**
+   * Explicit opt-in to mock inference. The UI should only call this after
+   * the user has acknowledged that the real model resource is missing
+   * (e.g. via a confirmation modal). Default state is 'failed' — we
+   * never silently degrade (audit A-06).
+   */
+  useMockInference(): void {
+    this.mockOptIn = true;
+    this.model = null;
+    this.outcome = 'mock';
+  }
+
+  /**
+   * Optional: declare the model's output activation so
+   * `normalizeToProbabilities` can pick the right transformation.
+   * Unknown / unset → defaults to 'softmax' for backwards compatibility.
+   */
+  setOutputActivation(activation: OutputActivation): void {
+    this.outputActivation = activation;
   }
 
   async predict(signalData: number[][]): Promise<ModelPrediction[]> {
-    if (!this.model && this.useMockInference) {
+    if (this.outcome === 'mock' || (this.mockOptIn && !this.model)) {
       return this.mockPredict(signalData);
     }
 
@@ -44,7 +154,10 @@ class ModelService {
     const inputTensor = this.buildInputTensor(signalData, this.model.inputs[0].shape);
     const prediction = this.model.predict(inputTensor) as tf.Tensor;
     const rawScores = Array.from(await prediction.data());
-    const probabilities = this.normalizeToProbabilities(rawScores);
+    const probabilities = this.normalizeToProbabilities(
+      rawScores,
+      this.outputActivation,
+    );
 
     inputTensor.dispose();
     prediction.dispose();
@@ -121,6 +234,8 @@ class ModelService {
   dispose(): void {
     this.model?.dispose();
     this.model = null;
+    this.mockOptIn = false;
+    this.outcome = 'failed';
 
     if (this.worker) {
       this.worker.terminate();
@@ -129,11 +244,20 @@ class ModelService {
   }
 
   isModelLoaded(): boolean {
-    return this.model !== null || this.useMockInference;
+    return this.model !== null || this.outcome === 'mock';
   }
 
+  /**
+   * Whether the service is currently in the (opt-in) mock fallback mode.
+   * Distinguish from `getLoadOutcome` which also exposes the 'failed'
+   * state.
+   */
   isUsingMockInference(): boolean {
-    return this.useMockInference;
+    return this.outcome === 'mock';
+  }
+
+  getLoadOutcome(): ModelLoadOutcome {
+    return this.outcome;
   }
 
   getModelInfo(): { name: string; loaded: boolean } {
@@ -143,10 +267,6 @@ class ModelService {
     };
   }
 
-  private getCacheKey(modelUrl: string): string {
-    return `${MODEL_CACHE_PREFIX}${encodeURIComponent(modelUrl)}`;
-  }
-
   private formatPrediction(result: number[]): ModelPrediction[] {
     return CLASS_NAMES.map((label, index) => ({
       className: label,
@@ -154,23 +274,18 @@ class ModelService {
     })).sort((a, b) => b.probability - a.probability);
   }
 
-  private normalizeToProbabilities(scores: number[]): number[] {
-    if (scores.length === 0) {
-      return scores;
-    }
-
-    const hasNegative = scores.some((value) => value < 0);
-    const sum = scores.reduce((acc, value) => acc + value, 0);
-    const looksLikeProb = !hasNegative && sum > 0.95 && sum < 1.05;
-
-    if (looksLikeProb) {
-      return scores;
-    }
-
-    const maxScore = Math.max(...scores);
-    const expScores = scores.map((value) => Math.exp(value - maxScore));
-    const expSum = expScores.reduce((acc, value) => acc + value, 0);
-    return expScores.map((value) => value / Math.max(expSum, 1e-6));
+  /**
+   * Convert raw model output to a probability vector.
+   *
+   * For 'softmax' output we treat the scores as logits and apply a
+   * stable softmax. For 'sigmoid' (multi-label) we clamp to [0, 1] and
+   * keep each label's independent probability — never sum-to-1.
+   */
+  private normalizeToProbabilities(
+    scores: number[],
+    activation: OutputActivation = this.outputActivation,
+  ): number[] {
+    return normalizeToProbabilities(scores, activation);
   }
 
   private isShapeCompatible(expected: number | null | undefined, actual: number): boolean {
@@ -178,99 +293,200 @@ class ModelService {
   }
 
   private buildInputTensor(signalData: number[][], inputShape: Array<number | null>): tf.Tensor {
-    const samples = signalData[0]?.length || 0;
-    const aligned = signalData.map((lead) => lead.slice(0, samples));
-
-    if (inputShape.length === 3) {
-      const expectedA = inputShape[1];
-      const expectedB = inputShape[2];
-
-      const leadMajor = tf.tensor(aligned).expandDims(0);
-      const timeMajor = tf.tensor(aligned).transpose([1, 0]).expandDims(0);
-
-      const leadMajorShape = leadMajor.shape;
-      const timeMajorShape = timeMajor.shape;
-
-      if (
-        this.isShapeCompatible(expectedA, leadMajorShape[1] ?? 0) &&
-        this.isShapeCompatible(expectedB, leadMajorShape[2] ?? 0)
-      ) {
-        timeMajor.dispose();
-        return leadMajor;
-      }
-
-      if (
-        this.isShapeCompatible(expectedA, timeMajorShape[1] ?? 0) &&
-        this.isShapeCompatible(expectedB, timeMajorShape[2] ?? 0)
-      ) {
-        leadMajor.dispose();
-        return timeMajor;
-      }
-
-      leadMajor.dispose();
-      timeMajor.dispose();
-
-      const singleLead = aligned[0] || [];
-      return tf.tensor(singleLead, [1, singleLead.length, 1]);
-    }
-
-    if (inputShape.length === 2) {
-      const flattened = aligned.flat();
-      return tf.tensor(flattened, [1, flattened.length]);
-    }
-
-    if (inputShape.length === 4) {
-      const expectedA = inputShape[1];
-      const expectedB = inputShape[2];
-      const expectedC = inputShape[3];
-
-      const timeMajor4d = tf.tensor(aligned).transpose([1, 0]).expandDims(0).expandDims(-1);
-      if (
-        this.isShapeCompatible(expectedA, timeMajor4d.shape[1] ?? 0) &&
-        this.isShapeCompatible(expectedB, timeMajor4d.shape[2] ?? 0) &&
-        this.isShapeCompatible(expectedC, timeMajor4d.shape[3] ?? 0)
-      ) {
-        return timeMajor4d;
-      }
-
-      timeMajor4d.dispose();
-    }
-
-    return tf.tensor(aligned).expandDims(0);
+    return buildInputTensor(signalData, inputShape);
   }
 
+  /**
+   * Mock prediction aggregating across all leads (audit A-12). Delegates
+   * to the pure `mockPredictFromLeads` helper so the same logic can be
+   * unit-tested without TF.js. A zero/empty first lead no longer
+   * hides signal in other leads.
+   */
   private mockPredict(signalData: number[][]): ModelPrediction[] {
-    const lead = signalData[0] || [];
-    if (lead.length === 0) {
-      return this.formatPrediction([0.2, 0.2, 0.2, 0.2, 0.2]);
+    return this.formatPrediction(mockPredictFromLeads(signalData));
+  }
+
+  /**
+   * Heatmap aggregating across all leads (audit A-12). Returns the per-
+   * sample |x| vector from the dominant lead, normalised to [0, 1].
+   */
+  private generateHeatmap(signalData: number[][]): number[] {
+    const dominantLead = pickDominantLead(signalData);
+    if (dominantLead.length === 0) return [];
+    const max = Math.max(...dominantLead.map((value) => Math.abs(value)), 1);
+    return dominantLead.map((value) => Math.abs(value) / max);
+  }
+}
+
+/**
+ * Build the input tensor for a model from a multi-lead signal.
+ *
+ * Exported as a top-level function so `useModelInference` and the
+ * service share the exact same shape contract (audit A-14). Both
+ * call paths used to build different tensors for the same model
+ * (the hook hard-coded `[signal]` and crashed on time-major / 4D
+ * conv heads). Going through this helper keeps the two paths
+ * byte-identical.
+ */
+export function buildInputTensor(
+  signalData: number[][],
+  inputShape: Array<number | null>,
+): tf.Tensor {
+  const samples = signalData[0]?.length || 0;
+  const aligned = signalData.map((lead) => lead.slice(0, samples));
+
+  const isShapeCompatible = (expected: number | null | undefined, actual: number): boolean =>
+    expected == null || expected === -1 || expected === actual;
+
+  if (inputShape.length === 3) {
+    const expectedA = inputShape[1];
+    const expectedB = inputShape[2];
+
+    const leadMajor = tf.tensor(aligned).expandDims(0);
+    const timeMajor = tf.tensor(aligned).transpose([1, 0]).expandDims(0);
+
+    const leadMajorShape = leadMajor.shape;
+    const timeMajorShape = timeMajor.shape;
+
+    if (
+      isShapeCompatible(expectedA, leadMajorShape[1] ?? 0) &&
+      isShapeCompatible(expectedB, leadMajorShape[2] ?? 0)
+    ) {
+      timeMajor.dispose();
+      return leadMajor;
     }
 
-    const mean = lead.reduce((sum, value) => sum + value, 0) / lead.length;
-    const variance =
-      lead.reduce((sum, value) => sum + (value - mean) * (value - mean), 0) /
-      Math.max(1, lead.length);
-    const std = Math.sqrt(variance);
-    const amplitude = Math.max(...lead, 0) - Math.min(...lead, 0);
+    if (
+      isShapeCompatible(expectedA, timeMajorShape[1] ?? 0) &&
+      isShapeCompatible(expectedB, timeMajorShape[2] ?? 0)
+    ) {
+      leadMajor.dispose();
+      return timeMajor;
+    }
 
-    const normalScore = Math.max(0.1, 1.1 - std * 2.5 - amplitude * 0.6);
-    const afScore = Math.max(0.05, std * 1.8 + Math.abs(mean) * 0.5);
-    const svtScore = Math.max(0.05, amplitude * 0.7 + std * 0.9);
-    const vtScore = Math.max(0.05, amplitude * 0.9);
-    const pauseScore = Math.max(0.05, 1 - amplitude * 1.5);
+    leadMajor.dispose();
+    timeMajor.dispose();
 
-    const raw = [normalScore, afScore, svtScore, vtScore, pauseScore];
-    const total = raw.reduce((sum, value) => sum + value, 0);
-    const probs = raw.map((value) => value / Math.max(1e-6, total));
-
-    return this.formatPrediction(probs);
+    const singleLead = aligned[0] || [];
+    return tf.tensor(singleLead, [1, singleLead.length, 1]);
   }
 
-  private generateHeatmap(signalData: number[][]): number[] {
-    const lead = signalData[0] || [];
-    if (lead.length === 0) return [];
-    const max = Math.max(...lead.map((value) => Math.abs(value)), 1);
-    return lead.map((value) => Math.abs(value) / max);
+  if (inputShape.length === 2) {
+    const flattened = aligned.flat();
+    return tf.tensor(flattened, [1, flattened.length]);
   }
+
+  if (inputShape.length === 4) {
+    const expectedA = inputShape[1];
+    const expectedB = inputShape[2];
+    const expectedC = inputShape[3];
+
+    const timeMajor4d = tf.tensor(aligned).transpose([1, 0]).expandDims(0).expandDims(-1);
+    if (
+      isShapeCompatible(expectedA, timeMajor4d.shape[1] ?? 0) &&
+      isShapeCompatible(expectedB, timeMajor4d.shape[2] ?? 0) &&
+      isShapeCompatible(expectedC, timeMajor4d.shape[3] ?? 0)
+    ) {
+      return timeMajor4d;
+    }
+
+    timeMajor4d.dispose();
+  }
+
+  return tf.tensor(aligned).expandDims(0);
+}
+
+/**
+ * Pick the lead whose peak-to-peak amplitude is the largest. Returns an
+ * empty array when every lead is empty. Exported as a pure helper so it
+ * can be unit-tested without touching the service.
+ */
+export function pickDominantLead(signalData: number[][]): number[] {
+  let best: number[] = [];
+  let bestRange = 0;
+  for (const lead of signalData) {
+    if (!Array.isArray(lead) || lead.length === 0) continue;
+    let max = lead[0];
+    let min = lead[0];
+    for (let i = 1; i < lead.length; i++) {
+      const v = lead[i];
+      if (v > max) max = v;
+      if (v < min) min = v;
+    }
+    const range = max - min;
+    if (range > bestRange) {
+      bestRange = range;
+      best = lead;
+    }
+  }
+  return best;
+}
+
+/**
+ * Convert raw model output to a probability vector. Pure function so it
+ * can be unit-tested without TF.js.
+ *
+ * - 'softmax' → stable softmax of the scores (sum-to-1).
+ * - 'sigmoid' → each score clamped to [0, 1] (independent labels, never
+ *   sum-to-1). This is the audit A-09 fix: a sigmoid multi-label head
+ *   must NOT be renormalised to sum-to-1.
+ */
+export function normalizeToProbabilities(
+  scores: number[],
+  activation: OutputActivation = 'softmax',
+): number[] {
+  if (scores.length === 0) {
+    return scores;
+  }
+
+  if (activation === 'sigmoid') {
+    return scores.map((value) => clamp01(value));
+  }
+
+  // Softmax branch: treat the scores as logits. Stable softmax via the
+  // max-subtraction trick.
+  const maxScore = Math.max(...scores);
+  const expScores = scores.map((value) => Math.exp(value - maxScore));
+  const expSum = expScores.reduce((acc, value) => acc + value, 0);
+  return expScores.map((value) => value / Math.max(expSum, 1e-6));
+}
+
+/**
+ * Build a 5-class mock prediction from a multi-lead signal. Pure
+ * function so it can be unit-tested without TF.js. Audit A-12:
+ * the function picks the dominant lead (largest peak-to-peak) and
+ * scores the standard mock classes from its statistics. A zero/empty
+ * first lead no longer hides signal in other leads.
+ */
+export function mockPredictFromLeads(signalData: number[][]): number[] {
+  const dominantLead = pickDominantLead(signalData);
+  if (dominantLead.length === 0) {
+    return [0.2, 0.2, 0.2, 0.2, 0.2];
+  }
+
+  const mean = dominantLead.reduce((sum, value) => sum + value, 0) / dominantLead.length;
+  const variance =
+    dominantLead.reduce((sum, value) => sum + (value - mean) * (value - mean), 0) /
+    Math.max(1, dominantLead.length);
+  const std = Math.sqrt(variance);
+  const amplitude = Math.max(...dominantLead, 0) - Math.min(...dominantLead, 0);
+
+  const normalScore = Math.max(0.1, 1.1 - std * 2.5 - amplitude * 0.6);
+  const afScore = Math.max(0.05, std * 1.8 + Math.abs(mean) * 0.5);
+  const svtScore = Math.max(0.05, amplitude * 0.7 + std * 0.9);
+  const vtScore = Math.max(0.05, amplitude * 0.9);
+  const pauseScore = Math.max(0.05, 1 - amplitude * 1.5);
+
+  const raw = [normalScore, afScore, svtScore, vtScore, pauseScore];
+  const total = raw.reduce((sum, value) => sum + value, 0);
+  return raw.map((value) => value / Math.max(1e-6, total));
+}
+
+function clamp01(value: number): number {
+  if (Number.isNaN(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
 }
 
 export const modelService = new ModelService();

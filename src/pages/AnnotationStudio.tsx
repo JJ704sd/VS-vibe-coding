@@ -1,6 +1,7 @@
 ﻿import React, { useState } from 'react';
 import {
   Card,
+  Modal,
   Row,
   Col,
   message,
@@ -643,15 +644,46 @@ const AnnotationStudio: React.FC = () => {
   const handleModelLoad = async (): Promise<void> => {
     dispatch(setModelLoading(true));
     try {
-      await modelService.loadModel('/models/ecg-classifier/model.json');
-      dispatch(setModelLoaded(true));
-      if (modelService.isUsingMockInference()) {
-        message.warning('未配置真实模型，已切换到模拟推理模式');
-      } else {
-        message.success('真实模型加载成功');
+      // A-06: loadModel now returns a 3-state outcome. We no longer flip
+      // into mock mode silently — if the real model is missing the user
+      // must explicitly opt in via the confirmation modal below.
+      const result = await modelService.loadModel('/models/ecg-classifier/model.json');
+      if (result.cacheWriteFailed) {
+        message.warning('真实模型已加载，但持久化到本地缓存失败；下次启动需要重新加载。');
       }
-    } catch {
-      message.error('模型加载失败');
+      if (result.outcome === 'loaded') {
+        dispatch(setModelLoaded(true));
+        message.success('真实模型加载成功');
+      } else if (result.outcome === 'failed') {
+        // Real model missing. Ask the user whether to use mock inference.
+        const confirmed = await new Promise<boolean>((resolve) => {
+          Modal.confirm({
+            title: '未配置真实模型',
+            content: (
+              <span>
+                当前未找到真实模型权重（<code>/models/ecg-classifier/model.json</code>）。
+                是否切换到 <strong>模拟推理</strong> 模式？模拟结果仅供 UI 演示，
+                不可作为诊断依据。
+              </span>
+            ),
+            okText: '使用模拟推理',
+            cancelText: '取消',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        });
+        if (confirmed) {
+          modelService.useMockInference();
+          dispatch(setModelLoaded(true));
+          message.warning('已切换到模拟推理模式（仅供演示）');
+        } else {
+          // User declined. Surface a clear unavailable state so the
+          // diagnosis export will read `source: 'unavailable'`.
+          message.info('已取消模拟推理；当前未加载任何模型');
+        }
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '模型加载失败');
     } finally {
       dispatch(setModelLoading(false));
     }
