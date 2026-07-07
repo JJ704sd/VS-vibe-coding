@@ -1,5 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
-import { PendingAction, syncPendingActions } from '../services/offlineQueue';
+import { PendingAction, PendingActionExecutors, syncPendingActions } from '../services/offlineQueue';
+
+interface UseOfflineModeOptions {
+  /**
+   * Map of action type → executor. C-19: without these the hook can never
+   * actually drain the queue because `syncPendingActions` treats every
+   * action as "no handler configured". Defaults to an empty map; the hook
+   * still tracks pendingActions and online state, but `syncNow` will only
+   * succeed when a caller passes real executors.
+   */
+  executors?: PendingActionExecutors;
+}
 
 interface UseOfflineModeReturn {
   isOnline: boolean;
@@ -13,7 +24,8 @@ interface UseOfflineModeReturn {
 const STORAGE_KEY = 'ecg_platform_pending_actions';
 const SYNC_TIME_KEY = 'ecg_platform_last_sync';
 
-export function useOfflineMode(): UseOfflineModeReturn {
+export function useOfflineMode(options: UseOfflineModeOptions = {}): UseOfflineModeReturn {
+  const { executors = {} } = options;
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingActions, setPendingActions] = useState(0);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
@@ -95,9 +107,21 @@ export function useOfflineMode(): UseOfflineModeReturn {
     }
     if (actions.length === 0) return;
 
+    if (Object.keys(executors).length === 0) {
+      // C-19: surface a single, visible warning instead of silently
+      // re-marking every action as failed. Without this the user has no
+      // signal that the hook is misconfigured.
+      console.warn(
+        '[useOfflineMode] syncNow called with no executors configured; ' +
+          `${actions.length} pending action(s) will stay in localStorage. ` +
+          'Pass `useOfflineMode({ executors: { create, update, delete } })` to enable real sync.',
+      );
+      return;
+    }
+
     console.log('[useOfflineMode] Syncing pending actions:', actions.length);
 
-    const result = await syncPendingActions(actions, {});
+    const result = await syncPendingActions(actions, executors);
     for (const action of result.synced) {
       console.log('[useOfflineMode] Synced action:', action.id);
     }
@@ -113,7 +137,7 @@ export function useOfflineMode(): UseOfflineModeReturn {
     } else {
       savePendingActions(result.remaining);
     }
-  }, [isOnline, clearPendingActions, savePendingActions]);
+  }, [isOnline, executors, clearPendingActions, savePendingActions]);
 
   return {
     isOnline,
