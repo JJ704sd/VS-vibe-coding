@@ -65,16 +65,28 @@ def test_annotation_question_explains_current_context_without_saved_memory(tmp_p
     assert result["sources"][0]["type"] == "case"
 
 
-def test_rebuild_creates_fallback_knowledge_file_when_no_docs_exist(tmp_path):
+def test_rebuild_fallback_writes_to_sidecar_dir_not_repo(tmp_path, monkeypatch):
+    """C-06: when no docs are present the fallback knowledge base used to
+    land in `<repo>/docs/assistant/knowledge-base.md`, which is inside the
+    working tree. After the closeout it lands in the sidecar data directory
+    so a long-running process can't pollute the repo on disk.
+    """
+    from assistant import rag_store
+
+    fallback_dir = tmp_path / "sidecar-data" / "assistant"
+    monkeypatch.setattr(rag_store, "DEFAULT_FALLBACK_DIR", fallback_dir)
+
     rag = RAGStore(tmp_path)
 
     result = rag.rebuild()
 
-    fallback_file = tmp_path / "docs" / "assistant" / "knowledge-base.md"
+    fallback_file = fallback_dir / "knowledge-base.md"
     assert fallback_file.exists()
     assert result["indexedDocuments"] == 1
     assert result["chunks"] > 0
     assert "WFDB" in fallback_file.read_text(encoding="utf-8")
+    # The repo working tree must stay clean.
+    assert not (tmp_path / "docs").exists()
 
 
 def test_main_creates_assistant_service_lazily_without_writing_memory_file(tmp_path, monkeypatch):
