@@ -159,9 +159,14 @@ module.exports = {
       },
     },
   },
+  // D-4 fix-batch-2: also apply the budget to async chunks via
+  // performance.assetFilter so dev warns about vendor splits growing
+  // past `maxAssetSize`. Source-map files are excluded so the dev
+  // server output is not littered with .map size warnings.
   performance: {
     hints: 'warning',
     maxEntrypointSize: 1500000,
     maxAssetSize: 1500000,
+    assetFilter: (assetName) => !assetName.endsWith('.map'),
   },
 };

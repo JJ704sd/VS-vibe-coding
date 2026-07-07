@@ -211,9 +211,18 @@ module.exports = {
   //       any single chunk bigger than this is a sign that the splitChunks
   //       cacheGroups (tensorflow / firebase / @firebase / antd / echarts)
   //       are not doing their job and need another look.
+  // Source of truth for bundle budget — keep REVIEW.md / CHANGELOG.md in sync.
+  // Last reconciled: 2026-07-07 (D-3 fix-batch-2).
+  // D-4 fix-batch-2: also cap async chunks via performance.assetFilter so
+  // big vendor splits (firebase / tensorflow / echarts) cannot grow past
+  // `maxAssetSize` silently — webpack would otherwise only warn on
+  // non-entry assets even with `hints: 'error'`.
   performance: {
     hints: 'error',
     maxEntrypointSize: 1600000,
     maxAssetSize: 1500000,
+    // Asset filter: skip .map source-map files but include every JS chunk
+    // (initial entry + async vendor) so the budget applies uniformly.
+    assetFilter: (assetName) => !assetName.endsWith('.map'),
   },
 };
