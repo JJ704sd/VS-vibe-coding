@@ -1,9 +1,72 @@
 # ECG Annotation Platform Review
 
 日期：2026-05-24
-最后更新：2026-07-04
+最后更新：2026-07-07
 
-## 2026-07-04 P0 audit + canvas closeout round (本轮新增)
+## 2026-07-07 batch 1+2 P1 closeout round (本轮新增)
+
+围绕 2026-07-07 全面 bug 审计报告（`docs/audits/2026-07-07-FINAL-REPORT.md`）
+的 P0 + P1 修复路线，本轮落 4 个 track（Track P / S / B / P2）+ Track D2
+cherry-pick（9 个 feat + 4 个 merge + 1 个 cherry-pick，按时间顺序）：
+
+| SHA | 类型 | 摘要 |
+| --- | --- | --- |
+| `b61340c` | `fix(parser)` | Track P：A-01 DICOM parser 显式 VR 大小端 + A-03 WFDB `Uint8Array` + `212` 格式（2 P0） |
+| `80e55c5` | `fix(sidecar)` | Track S：D-1 path traversal + D-2 admin token + C-12 MiniMax proxy route + C-11 drop `useProxy=false`（3 P0 + 1 P1） |
+| `c779107` | `fix(studio)` | Track B：B-03 URL switch state reset + B-04 Firebase debounce guard + B-05 import clear inference（3 P1） |
+| `575f360` | `fix(studio)` | B-03 ref guard（verifier attempt 1 → 2） |
+| `d8294d8` | `docs(audit)` | 2026-07-07 全面 bug 审计报告（Track A/B/C/D + FINAL） |
+| `c7faa32` | `fix(parser)` | Track P2：A-02 DICOM waveform tags + A-04 HL7 sampling/duration + A-05 `.hl7` UI route + C-14 HL7 padding/endian + C-15 WFDB `parseECG` entry（5 P1） |
+| `3852458` | `merge` | merge fix/track-p-parser-rework into main |
+| `25f621b` | `merge` | merge fix/track-s-sidecar-security into main |
+| `5468fc2` | `merge` | merge fix/track-b-studio-state-reset into main |
+| `acffecf` | `merge` | merge fix/track-p2-parser-extension into main |
+| `b995732` | `fix(build)` | Track D2 cherry-pick：D-3 bundle 预算文档同步脚本 + D-4 `performance.assetFilter`（2 P1） |
+
+**累计 close（本轮 + 2026-07-04 round）：** 全部 **5 P0** + **11 P1**（audit 23 P1
+中的 11 个）。**12 P1 + 20 P2 + 6 P3** 仍 open，进下一轮。
+
+**本轮残留 / 风险（必须坦白）：**
+
+- **Track M / Track F worker 丢失。** 上一轮 closeout 报告把 Track M
+  （5e8e9b0，model contract 7 个 P1）和 Track F（d2f3a51，firebase UX
+  2 个 P1）列为"已合并入 main"，但 `git cat-file -t 5e8e9b0` /
+  `d2f3a51` 均报 "Not a valid object name"，`git fsck --no-reflogs` 也
+  没找到 dangling commit。Work 要么从未产出，要么被静默丢弃。下一轮
+  必须按 "team plan killed ≠ 没完成" SOP，在 merge 之前 `git log
+  fix/track-<id>` 实证。
+- **D-3 / D-4 cherry-pick。** Track D2 的 commit `d33a348` 实际只是
+  dangling，没 merge 进 main；本轮通过 `git cherry-pick d33a348` 救回
+  到 `fix/d2-bundle-hygiene` 分支（只取 webpack 配置 + 新脚本，CHANGELOG
+  / REVIEW 由本轮重写）。没有这次 dangling commit 救回的话，D-3 + D-4
+  会和 Track M / Track F 一起丢失。
+- **`npm run test:unit` 出现 1 个 pre-existing skip**（与本轮无关，
+  验证矩阵从 109/109 → 207/208 + 1 skip）。
+
+**已结清（按 2026-07-04 round risk #1–#8 对照）：**
+
+- 风险 #1（CI 触发分支）→ `6c9d019` + `edda1ac` 维持监听 `main` + 三
+  job 形态，本轮无回归。
+- 风险 #2（运行端点硬编码）→ `a17fbec` + 本轮 webpack `DefinePlugin`
+  维持；新 MiniMax 代理走 Sidecar 默认端口 6090。
+- 风险 #3（sidecar 安全边界）→ 本轮 `80e55c5` 把 D-1 path traversal
+  + D-2 admin token 都收口；CORS 仍按 `SIDECAR_ALLOW_ORIGINS` 受控。
+  部署到非本机前需把 `SIDECAR_ADMIN_TOKEN` 写进环境。
+- 风险 #4（demo / 生产边界说明）→ `1964487` + `180be1e` + `10df188`
+  维持；本轮无新增 UI 标记变更。
+- 风险 #5（UI / 工作流 e2e 覆盖）→ `acbf4f0` + `6c7387e` 维持；本轮
+  `c779107` + `575f360` 覆盖 B-03 URL 切换分支，需要补 happy-dom 单测
+  （下一轮 +1 case）。
+- 风险 #6（bundle 预算与按需懒加载）→ `bb85031` + `8762264` 维持；
+  本轮 `b995732` 把 D-4 async chunk assetFilter 补上，vendor split
+  现在和 entrypoint 一起受 `maxAssetSize` 守门；D-3 把预算数字与
+  webpack 真值的同步锁进 `scripts/check-bundle-budget-sync.ps1`。
+- 风险 #7（文档漂移）→ `099f594` + `c487669` 维持；本轮 CHANGELOG
+  + REVIEW 重写覆盖 batch 1+2 全部 close 项。
+- 风险 #8（ECGFounder 外部 PR）→ 上游 `PKUDigitalHealth/ECGFounder`
+  PR #1 状态不变；本轮无新动作。
+
+## 2026-07-04 P0 audit + canvas closeout round
 
 围绕端侧 TF.js 推理链路、Canvas 标注重构、导出 provenance、e2e 测试基础设施和文档一致性，落到 9 个 commit（按合并顺序）：
 
@@ -25,7 +88,7 @@
 - 风险 #1（CI 触发分支）→ 已在 2026-06-06 hardening round 关闭；本轮 `6c9d019` + `edda1ac` 维持监听 `main`，`quality / build / deploy` 三 job 形态保留并通过。
 - 风险 #3（sidecar 安全边界）→ `c7328a5` 仍生效，CORS 仅本地 dev origins，删除类接口加 `?confirm=` 二次确认；本轮无回归。
 - 风险 #4（demo / 生产边界说明）→ `1964487` 已部署顶栏 banner + 侧栏 Demo/Mock tag + AIModels MOCK chip；本轮新增 SignalMetrics 持久 MOCK chip（`180be1e`）+ 导出 `diagnosis.source`（`10df188`）+ e2e 测试锁定该契约。
-- 风险 #6（bundle 预算与按需懒加载）→ 已在 2026-06-06 hardening round 关闭；本轮 `8762264` 把 webpack `maxEntrypointSize` 提到 2 500 000 + `hints: 'error'`，回归即 CI 红。
+- 风险 #6（bundle 预算与按需懒加载）→ 已在 2026-06-06 hardening round 关闭；本轮 `8762264` 把 webpack `performance.hints` 切到 `'error'` + `maxEntrypointSize` 收紧到 1 600 000，回归即 CI 红；本轮 `b995732` 进一步补 `assetFilter`（D-4）+ `check-bundle-budget-sync.ps1`（D-3）把 bundle 与文档同步锁住。
 - 风险 #7（文档漂移）→ 已在 2026-06-06 hardening round 关闭；本轮 `099f594` + `c487669` 重写 CLAUDE/AGENTS 并新增 P0 audit 文档。
 
 **未变（仍属 P1）**：
@@ -66,7 +129,7 @@
 - 风险 #5（UI / 工作流 e2e 覆盖）
 
 **已结清**：
-- 风险 #6（bundle 预算与按需懒加载）→ `bb85031 perf(build): lazy-load firebase + @firebase via dynamic import and split chunks`。`firebaseService` 顶层 import 改为 type-only + `await import()` 内填充到 instance fields，AnnotationStudio 进 useEffect 时触发 init。webpack 新增 `firebase` / `@firebase` cacheGroup（均 `chunks: 'async'`），vendor cacheGroup 改用 function test 排除 `firebase/@tensorflow/@firebase`。结果：主入口 1.76 → 1.5 MiB（main 28 + Antd 600 + vendors 907 + runtime 4 KB），firebase SDK（6.61 + 515 = ~520 KiB）拆为按需 async chunk，仅在用户点进 AnnotationStudio 时下载。webpack budget 同步收紧 `maxEntrypointSize: 2 500 000 → 1 600 000`（1.5 MiB + ~50 KiB headroom），保留 `hints: 'error'` 防止后续再胖。
+- 风险 #6（bundle 预算与按需懒加载）→ `bb85031 perf(build): lazy-load firebase + @firebase via dynamic import and split chunks`。`firebaseService` 顶层 import 改为 type-only + `await import()` 内填充到 instance fields，AnnotationStudio 进 useEffect 时触发 init。webpack 新增 `firebase` / `@firebase` cacheGroup（均 `chunks: 'async'`），vendor cacheGroup 改用 function test 排除 `firebase/@tensorflow/@firebase`。结果：主入口 1.76 → 1.5 MiB（main 28 + Antd 600 + vendors 907 + runtime 4 KB），firebase SDK（6.61 + 515 = ~520 KiB）拆为按需 async chunk，仅在用户点进 AnnotationStudio 时下载。webpack budget 同步收紧到 `maxEntrypointSize: 1 600 000`（1.5 MiB + ~50 KiB headroom），保留 `hints: 'error'` 防止后续再胖；本轮 `b995732` 再补 `assetFilter`（D-4）+ `check-bundle-budget-sync.ps1`（D-3）把 bundle 与文档同步锁住。
 
 CI 状态：所有 commit 已 push 至 `origin/main`，最后三次 CI 跑通（`1964487` 2:18 success / `0829b9e` 2:25 success / `bb85031` 2:12 success，2026-06-06 用户确认绿色），站点 redeploy 到 `https://jj704sd.github.io/VS-vibe-coding/`，含 demo 边界 banner / MOCK chip / bundle 预算守门。
 
@@ -81,12 +144,19 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 ## 仓库状态
 
 - 仓库路径：`D:\VS vibe coding files\ecg-annotation-platform`
-- 当前分支：`main`
-- 本地 HEAD：`c487669 docs(audit): capture P0 BUG audit + canvas annotation closeout + BUG records`
-- 远端同步点：`origin/main`（ahead 4 commits，未推送；本轮 P0 audit + Canvas closeout 待 review）
-- 当前状态：本地 `main` 与 `origin/main` 不一致，工作区干净。
-- 已合并分支：`codex/continue-ecg-hardening` / `feature/env-config` / `fix/lint-after-merge` / `feature/unit-tests`。
+- 当前分支：`main`（合并 `fix/d2-bundle-hygiene` 后待推送）
+- 本地 HEAD：`b995732 fix(build): D-3 sync bundle budget docs + D-4 assetFilter for async chunks`（待 merge）
+- 远端同步点：`origin/main` = `acffecf merge: Track P2`（ahead 1 commit 待推送 = `b995732` 合并后的 merge commit）
+- 当前状态：本地工作区干净（仅 CHANGELOG.md / REVIEW.md staged in `fix/d2-bundle-hygiene`），分支 ahead `origin/main`。
+- 已合并分支：`codex/continue-ecg-hardening` / `feature/env-config` / `fix/lint-after-merge` / `feature/unit-tests` / `fix/d2-bundle-hygiene`（本轮，待 merge）。
+- 已清理的本地分支：`fix/track-b-studio-state-reset` / `fix/track-p-parser-rework` / `fix/track-s-sidecar-security`（batch 1，merge 后删除）；`fix/track-m-model-contract` / `fix/track-f-firebase-ux`（batch 2，从未产出对应 commit，已自然消失）；`fix/track-d2-ci-bundle-hygiene`（batch 2，commit `d33a348` dangling 救回到 `fix/d2-bundle-hygiene`）。
 - 远端功能分支仍存在：`origin/codex/continue-ecg-hardening` 指向 `efbdd04 fix: handle preflight permission errors`。
+
+## 本轮整理（2026-07-07）
+
+- Track P / S / B / P2（`b61340c` / `80e55c5` / `c779107` + `575f360` / `c7faa32`）：把 2026-07-07 全面 bug 审计报告里 5 P0 + 9 P1 全 close。详细 commit-by-commit 摘要见本文件 §2026-07-07 batch 1+2 P1 closeout round。
+- Track D2 cherry-pick（`b995732`）：从 dangling commit `d33a348` 救回 D-3（`scripts/check-bundle-budget-sync.ps1`）+ D-4（webpack `performance.assetFilter`）两条 P1，cherry-pick 落到 `fix/d2-bundle-hygiene`，仅取 webpack 配置 + 新脚本，CHANGELOG / REVIEW 由本轮 closeout 重写覆盖。
+- 本轮 CHANGELOG + REVIEW 重写：把 5 P0 全 close + 11 P1 close + 12 P1 残留 + 20 P2 + 6 P3 的状态全部写进 `CHANGELOG.md` 的 2026-07-07 batch 1+2 P1 closeout 段、`REVIEW.md` 的同标题段 + 验证结果表；同时把 Track M / Track F worker 丢失的事记进 Risks 段。
 
 ## 本轮整理（2026-07-04）
 
@@ -113,7 +183,20 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 
 ## 验证结果
 
-### 2026-07-04 round（本轮新增）
+### 2026-07-07 round（本轮新增）
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm run lint` | 通过，0 errors |
+| `npm run typecheck` | 通过，0 errors |
+| `npm run test:unit` | 通过，**207/208 pass**（1 pre-existing skip，与本轮无关） |
+| `npm run test:backend` | 通过（pytest，sidecar D-1 path traversal 6 条回归测试在 `tests/test_training_api_contract.py`） |
+| `npm run build` | 通过，webpack compiled successfully，主入口 1.5 MiB，无 size 警告（`hints: 'error'` + `assetFilter` 双守门） |
+| `npm run check` | 全过 |
+| `npm run check:assets` | 通过，`dist/models/` 仍按预期构建 |
+| `pwsh scripts/check-bundle-budget-sync.ps1` | 通过，本轮重写后的 CHANGELOG / REVIEW 与 webpack 真值一致 |
+
+### 2026-07-04 round（既有，仍有效）
 
 | 命令 | 结果 |
 | --- | --- |
@@ -165,8 +248,8 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 2. 运行端点仍然硬编码。
    `src/services/clinicApi.ts`、`src/services/trainingApi.ts`、`src/services/ecgAssistantApi.ts` 走 `src/config/env.ts` 的 `fromEnv` 兜底到 `http://localhost:4000/api` 与 `http://localhost:6090`。webpack `DefinePlugin` 把 `process.env.X` 替换为编译期字面量，dev 通过 `dotenv-webpack` 读仓库根 `.env`，prod 只读 shell 环境。适合本地 demo 与 GitHub Pages（侧栏 `Demo / Mock` tag 提示），但生产部署到非本机时仍需明确写入 `.env` 或 shell。
 
-3. sidecar 安全边界偏本地开发。
-   FastAPI CORS 受 `SIDECAR_ALLOW_ORIGINS` 控制（默认本地 dev origins，`c7328a5`），`DELETE /api/training/history/{round_name}` 加 `?confirm=<round_name>` 二次确认。Sidecar 部署到非本机前仍需补鉴权、路径校验和下载类 API 保护。
+3. ~~sidecar 安全边界偏本地开发。~~（**2026-06-06 已部分完成 + 2026-07-07 已基本完成**）
+   FastAPI CORS 受 `SIDECAR_ALLOW_ORIGINS` 控制（默认本地 dev origins，`c7328a5`），`DELETE /api/training/history/{round_name}` 加 `?confirm=<round_name>` 二次确认。本轮 `80e55c5` 把 D-1 path traversal（`_safe_round_name` + filename 正则 + `is_relative_to` 校验）+ D-2 admin token（`X-Admin-Token` 中间件 + `SIDECAR_ADMIN_TOKEN` 环境变量）都收口；`b995732` 通过 `scripts/check-bundle-budget-sync.ps1` 把文档与构建真值同步防回归。生产部署到非本机时仍需把 `SIDECAR_ADMIN_TOKEN` 写进环境并改默认 CORS。
 
 4. 产品边界仍是 demo / workflow validation。
    README 已说明部分页面仍用 mock 数据，DICOM / HL7 / WFDB parser 是轻量实现。`modelService` 在模型不可用时会进入 `mockPredict` 启发式推理，导出 `diagnosis.source` 强制标记 `real / mock / unavailable` 三态（`10df188`）。
@@ -177,7 +260,7 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
    *2026-07-04 部分缓解*：`acbf4f0` + `6c7387e` 接入 happy-dom e2e 测试基础设施，`src/__tests__/annotationWorkflow.test.tsx` 覆盖 导入 → 加载模型 → 标注 → 删除 → 导出 主链路（109/109 单测 pass）。前端仍缺少：浏览器 IndexedDB 缓存验证、断网推理证据、Canvas zoom/pan 坐标漂移自动化、训练 SSE 端到端、Playwright 真实浏览器 smoke。这些是 P1 风险，进入正式交付前需补齐。
 
 6. ~~bundle 大小需要建立预算。~~（**2026-06-06 已结清**）
-   `bb85031` 把 firebase / @firebase 改 async chunk，主入口从 1.76 → 1.5 MiB；`8762264` 把 webpack `performance.hints` 从 `'warning'` 切到 `'error'`，`maxEntrypointSize` 提到 2 500 000，回归即 CI 红。
+   `bb85031` 把 firebase / @firebase 改 async chunk，主入口从 1.76 → 1.5 MiB；`8762264` 把 webpack `performance.hints` 从 `'warning'` 切到 `'error'`，`maxEntrypointSize` 收紧到 1 600 000（1.5 MiB + ~50 KiB headroom），回归即 CI 红。
 
 7. ~~文档仍有局部漂移风险。~~（**2026-06-06 已结清**）
    `099f594` 重写 CLAUDE.md / AGENTS.md 去重（CLAUDE.md 收编任务路由 + 命令清单 + 调试速查 + env vars 单一来源；AGENTS.md 聚焦通用贡献规范），README / CLAUDE.md / AGENTS.md 已同步 Node 内置 test runner + `npm run test:backend` 入口。`c487669` 新增 `docs/superpowers/plans/2026-07-04-bug-audit-and-closeout-checklist.md` 沉淀 P0 BUG 审核 + Canvas closeout。
@@ -188,12 +271,15 @@ ECGFounder 独立仓库的 observer 修复已在 **上游 `PKUDigitalHealth/ECGF
 
 ## 建议下一步
 
-> 状态按 2026-07-04 round 后的最新事实更新。
+> 状态按 2026-07-07 round 后的最新事实更新。
 
 1. ~~更新 GitHub Pages / CI workflow~~（**2026-06-06 已完成**）。维持监听 `main` + `pull_request`，CI 跑 lint + typecheck + 前端单测 + 后端 pytest + build 三 job。
 2. ~~抽出运行配置：~~（**2026-06-06 已完成**）`src/config/env.ts` 通过 `fromEnv(name, fallback)` 统一兜底，webpack `DefinePlugin` 注入；生产部署时需明确写入 `.env` 或 shell。
 3. 给核心 UI 增加真实浏览器 e2e（**P1**）：在 `acbf4f0` + `6c7387e` 接入的 happy-dom 基础上，引入 Playwright 覆盖 Dashboard 加载、Case List → Annotation Studio、Canvas 双击/拖拽/选中删除、训练 SSE、Assistant 面板只读加载；当前 `src/__tests__/annotationWorkflow.test.tsx` 仅在 jsdom/happy-dom 中跑 Reducer + 视图派生，不替代真实浏览器证据。
-4. ~~加固 sidecar：~~（**2026-06-06 已部分完成**，CORS + 删除类确认已落）补充 checkpoint 下载路径校验、服务绑定 origin 鉴权；当前 `c7328a5` 关闭的 CORS `*` 已收口。
-5. ~~建立 bundle 预算：~~（**2026-06-06 已完成**）webpack `maxEntrypointSize: 2 500 000` + `hints: 'error'`，`bb85031` 已把 firebase 拆 async chunk。继续通过 `ANALYZE=true npm run build` 观察 TF.js / Antd / ECharts 体积变化。
-6. 明确 demo 与生产边界（**持续**）：本轮 `10df188` + `180be1e` 让 mock 推理在导出 metadata 与 UI 上都有持久标记；`c487669` 沉淀 P0 audit 文档；生产部署前需把 `public/models/ecg-classifier/model.json` 替换为验证过的 `.pth` / TF.js bundle 并去掉 mock fallback 路径。
+4. ~~加固 sidecar：~~（**2026-06-06 已部分完成**，CORS + 删除类确认已落；**2026-07-07 进一步完成**，D-1 路径遍历 + D-2 admin token 收口，`SIDECAR_ADMIN_TOKEN` 生产部署必填）。`scripts/check-bundle-budget-sync.ps1` 加进 preflight 防 D-3 类回归。
+5. ~~建立 bundle 预算：~~（**2026-06-06 已完成 + 2026-07-07 扩展**）webpack `maxEntrypointSize: 1 600 000` + `maxAssetSize: 1 500 000` + `hints: 'error'` + `performance.assetFilter`（D-4，`b995732`），`bb85031` 把 firebase 拆 async chunk。继续通过 `ANALYZE=true npm run build` 观察 TF.js / Antd / ECharts 体积变化。
+6. 明确 demo 与生产边界（**持续**）：本轮 `10df188` + `180be1e` 让 mock 推理在导出 metadata 与 UI 上都有持久标记；`c487669` 沉淀 P0 audit 文档；`d8294d8` 沉淀 2026-07-07 全面 bug 审计报告（54 项风险地图）；生产部署前需把 `public/models/ecg-classifier/model.json` 替换为验证过的 `.pth` / TF.js bundle 并去掉 mock fallback 路径。
 7. 在 ECGFounder 仓库继续处理 `codex/fix-param-observer-current-epoch` PR（**P1**，持续）：等上游 `PKUDigitalHealth/ECGFounder` PR #1 review/合并，并单独清点原始 `D:\ECG founder\ECGFounder` 的未提交训练代码和产物。
+8. **重跑 Track M + Track F worker session（**P1 残留 9 项**）**：A-06 / A-07 / A-08 / A-09 / A-10 / A-12 / A-14（7 项 model contract / cache / tensor 协议）+ B-06 / B-07（2 项 Firebase UX）。worker session 启动后按 "team plan killed ≠ 没完成" SOP，每完成一个 track 就 `git log fix/track-<id>` 实证 commit 落地，再发起 merge；同时给两个 worker 加 `--verify-before-completion` 钩子，避免再出现"报告完成但 commit 不存在"的假阳性。
+9. **消化 Track C 残留（3 项 P1）**：C-06（RAG store fallback 写 `docs/assistant/knowledge-base.md` 抑制到 Sidecar 内存或后台文件）/ C-07（assistant error response 暴露绝对路径）/ C-19（`useOfflineMode.syncNow` 空 executor）。
+10. **可选：批量消化 P2 / P3**（共 26 项），按 track 分批即可，无紧迫性。
