@@ -154,19 +154,31 @@ const AnnotationStudio: React.FC = () => {
     setLeads([]);
   }, [dispatch]);
 
+  // Track the last URL recordId this effect acted on. Using a ref (rather
+  // than `currentRecordId` in the effect deps) ensures the effect only
+  // re-runs on URL changes, not on internal state changes — most notably,
+  // applyImportedLeads setting currentRecordId when the user imports a
+  // different record than the one the URL points to. Without the ref,
+  // the effect would re-fire on every internal currentRecordId change,
+  // compare the *imported* recordId against the *URL* recordId, see a
+  // mismatch, and clobber the import with a reset to the URL value
+  // (verifier feedback, attempt 1 → attempt 2).
+  const lastProcessedUrlRecordIdRef = useRef<string>('');
+
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const nextPatientId = params.get('patientId')?.trim();
     const nextRecordId = routeRecordId?.trim() || params.get('recordId')?.trim();
 
-    if (nextRecordId && nextRecordId !== currentRecordId) {
-      // Navigating to a different record invalidates every piece of
-      // per-record state: previous annotations, AI results, source
-      // waveform, playback cursor, and the visible leads. Without this,
-      // the old record's data would still be on the canvas and exported
-      // JSON/CSV (audit B-03). The Firebase save debounce effect (B-04)
-      // also relies on annotations being cleared here before its
-      // setTimeout can fire with the previous record's payload.
+    if (nextRecordId && nextRecordId !== lastProcessedUrlRecordIdRef.current) {
+      // URL has navigated to a recordId we have not yet processed. Drop
+      // every piece of per-record state so the previous record's
+      // annotations / AI results / waveform do not leak into the new
+      // record's canvas or exports (audit B-03). The Firebase save
+      // debounce effect (B-04) also relies on annotations being cleared
+      // here before its setTimeout can fire with the previous record's
+      // payload.
+      lastProcessedUrlRecordIdRef.current = nextRecordId;
       resetRecordState();
       setCurrentRecordId(nextRecordId);
     }
@@ -174,7 +186,7 @@ const AnnotationStudio: React.FC = () => {
     if (nextPatientId) {
       setCurrentPatientId(nextPatientId);
     }
-  }, [location.search, routeRecordId, currentRecordId, resetRecordState]);
+  }, [location.search, routeRecordId, resetRecordState]);
 
   // Keep currentRecordIdRef in lock-step with the React state so the
   // Firebase save debounce effect can read the latest value from inside its

@@ -54,6 +54,9 @@ import type { Annotation } from '../types/index.ts';
 // Helpers
 // --------------------------------------------------------------------------
 
+import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import type { ECGLead } from '../types/index.ts';
+
 function buildAnnotation(overrides: Partial<Annotation> & { id: string }): Annotation {
   return {
     type: 'P',
@@ -75,37 +78,117 @@ function buildTestStore() {
   });
 }
 
+function buildLead(name: string, samples = 9): ECGLead {
+  return {
+    name,
+    data: Array.from({ length: samples }, (_, i) => Math.sin(i * 0.5) * 0.5),
+    samplingRate: 500,
+  };
+}
+
 /**
- * Test wrapper for B-03: mirrors the production
- * useEffect([location.search, routeRecordId, currentRecordId, resetRecordState])
- * effect in AnnotationStudio.tsx. The body is the spec; the real
- * AnnotationStudio effect must keep the same dispatch sequence.
- *
- * The harness takes a `search` prop instead of relying on
- * MemoryRouter + useLocation. This keeps the test deterministic: a
- * rerender with a new `search` prop reliably re-runs the effect (the
- * production code reads location.search, which is what `search` here
- * models). Using MemoryRouter's `initialEntries` across a rerender
- * would silently no-op because initialEntries is mount-time only.
+ * Test wrapper for B-03 (URL → store reset contract). Mirrors the
+ * production useEffect with the FIXED deps: the URL effect reads the
+ * recordId from a `lastProcessedUrlRecordIdRef` rather than from
+ * `currentRecordId`, so an internal setCurrentRecordId (e.g. from
+ * applyImportedLeads) does NOT re-fire the effect. The wrapper takes
+ * a `search` prop instead of relying on MemoryRouter + useLocation:
+ * rerendering with a new `search` prop reliably re-runs the effect
+ * (MemoryRouter's initialEntries is mount-time only and silently
+ * no-ops on rerender).
  */
 function UrlSwitchHarness({ search }: { search: string }): null {
   const dispatch = useDispatch();
-  const [currentRecordId, setCurrentRecordId] = useState('');
+  const [, setCurrentRecordId] = useState('');
 
   const resetRecordState = useCallback((): void => {
     dispatch(setAnnotations([]));
     dispatch(setInferenceResults([]));
   }, [dispatch]);
 
+  // Ref-tracked last URL recordId, mirroring the production fix.
+  const lastProcessedUrlRecordIdRef = useRef<string>('');
+
   useEffect(() => {
     const params = new URLSearchParams(search);
     const nextRecordId = params.get('recordId')?.trim();
 
-    if (nextRecordId && nextRecordId !== currentRecordId) {
+    if (nextRecordId && nextRecordId !== lastProcessedUrlRecordIdRef.current) {
+      lastProcessedUrlRecordIdRef.current = nextRecordId;
       resetRecordState();
       setCurrentRecordId(nextRecordId);
     }
-  }, [search, currentRecordId, resetRecordState]);
+  }, [search, resetRecordState]);
+
+  return null;
+}
+
+/**
+ * Test wrapper for B-03 follow-up (URL effect must NOT clobber an
+ * import that lands on a different recordId than the URL). The harness
+ * runs the production URL effect inside a real Router (MemoryRouter +
+ * /annotation/:recordId route, exactly matching the production route
+ * table in src/App.tsx), plus a simulated applyImportedLeads the test
+ * can invoke via globalThis to drop new leads + change the internal
+ * recordId. The test asserts the import wins, not the URL.
+ */
+type ImportOverrideHarnessApi = {
+  applyImport: (leads: ECGLead[], recordId: string, patientId?: string) => void;
+  getState: () => { currentRecordId: string; leads: ECGLead[]; patientId: string };
+};
+
+function ImportOverrideHarness(): null {
+  const dispatch = useDispatch();
+  const location = useLocation();
+  const { recordId: routeRecordId } = useParams<{ recordId?: string }>();
+  const [currentRecordId, setCurrentRecordId] = useState('');
+  const [patientId, setPatientId] = useState('');
+  const [leads, setLeads] = useState<ECGLead[]>([]);
+
+  const lastProcessedUrlRecordIdRef = useRef<string>('');
+
+  // URL effect — mirrors the production B-03 fix.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const nextPatientId = params.get('patientId')?.trim();
+    const nextRecordId = routeRecordId?.trim() || params.get('recordId')?.trim();
+
+    if (nextRecordId && nextRecordId !== lastProcessedUrlRecordIdRef.current) {
+      lastProcessedUrlRecordIdRef.current = nextRecordId;
+      dispatch(setAnnotations([]));
+      dispatch(setInferenceResults([]));
+      setLeads([]);
+      setCurrentRecordId(nextRecordId);
+    }
+
+    if (nextPatientId) {
+      setPatientId(nextPatientId);
+    }
+  }, [location.search, routeRecordId, dispatch]);
+
+  // Simulated applyImportedLeads: sets the internal recordId / patientId
+  // and the leads array, without going through the URL effect. In
+  // production this is wired to setCurrentRecordId + resetRecordState +
+  // sourceLeadsRef + setLeads inside AnnotationStudio.applyImportedLeads.
+  useEffect(() => {
+    (globalThis as unknown as { __importHarness: ImportOverrideHarnessApi | undefined }).__importHarness = {
+      applyImport: (newLeads, recordId, pid) => {
+        if (recordId) {
+          setCurrentRecordId(recordId);
+        }
+        if (pid) {
+          setPatientId(pid);
+        }
+        setLeads(newLeads);
+        dispatch(setAnnotations([]));
+        dispatch(setInferenceResults([]));
+      },
+      getState: () => ({ currentRecordId, leads, patientId }),
+    };
+    return () => {
+      (globalThis as unknown as { __importHarness: ImportOverrideHarnessApi | undefined }).__importHarness = undefined;
+    };
+  }, [currentRecordId, leads, patientId, dispatch]);
 
   return null;
 }
@@ -165,6 +248,7 @@ afterEach(() => {
   // Defensive: clear any global handle the harness may have leaked.
   delete (globalThis as unknown as { __harnessSetRecordId?: unknown }).__harnessSetRecordId;
   delete (globalThis as unknown as { __harnessSetAnnotations?: unknown }).__harnessSetAnnotations;
+  delete (globalThis as unknown as { __importHarness?: unknown }).__importHarness;
 });
 
 // --------------------------------------------------------------------------
@@ -398,4 +482,147 @@ test('B-05: import dispatch sequence (the same applyImportedLeads applies) clear
     0,
     'B-05: import must clear inferenceResults (B-05 contract — the regression C-01 missed)',
   );
+});
+
+// --------------------------------------------------------------------------
+// B-03 follow-up — URL effect must NOT clobber an import on a different
+// recordId (verifier feedback, attempt 1 → attempt 2)
+//
+// The original B-03 fix put `currentRecordId` in the URL effect's deps,
+// which made the effect re-fire whenever applyImportedLeads set a new
+// currentRecordId. If the user imported a record with a recordId
+// different from the URL, the effect saw:
+//     nextRecordId (from URL) = 'rec_100'
+//     currentRecordId (now from import) = 'rec_200'
+//   → 'rec_100' !== 'rec_200' → resetRecordState() + setCurrentRecordId('rec_100')
+// which clobbered the freshly imported leads with a reset back to the
+// URL value. The fix moves the comparison to a
+// `lastProcessedUrlRecordIdRef` so the effect only responds to URL
+// changes, not to internal state changes.
+// --------------------------------------------------------------------------
+
+test('B-03 follow-up: applyImportedLeads with a recordId different from the URL must win over the URL effect', () => {
+  const store = buildTestStore();
+
+  // Mount the harness inside a real Router that matches the production
+  // route table in src/App.tsx (/annotation/:recordId). The initial
+  // entry's recordId is rec_100.
+  render(
+    <Provider store={store}>
+      <MemoryRouter initialEntries={['/annotation/rec_100?patientId=p1']}>
+        <Routes>
+          <Route path="/annotation/:recordId" element={<ImportOverrideHarness />} />
+        </Routes>
+      </MemoryRouter>
+    </Provider>,
+  );
+
+  // Sanity: the URL effect should have set the internal recordId from
+  // the URL on mount.
+  const initialHarness = (globalThis as unknown as { __importHarness: ImportOverrideHarnessApi }).__importHarness;
+  assert.ok(initialHarness, 'harness API must be exposed via globalThis after mount');
+  assert.equal(initialHarness.getState().currentRecordId, 'rec_100', 'URL effect should pick up recordId from the route on mount');
+  assert.equal(initialHarness.getState().patientId, 'p1', 'URL effect should pick up patientId from the query string on mount');
+
+  // Simulate applyImportedLeads landing on a DIFFERENT recordId
+  // (rec_200) than the URL (rec_100). This is the scenario where the
+  // previous fix's `currentRecordId`-in-deps implementation would
+  // re-fire the URL effect, see nextRecordId=rec_100 vs internal
+  // currentRecordId=rec_200, and clobber the import.
+  const importedLeads: ECGLead[] = [
+    buildLead('I', 12),
+    buildLead('II', 12),
+  ];
+  act(() => {
+    initialHarness.applyImport(importedLeads, 'rec_200', 'p2');
+  });
+
+  // The harness's expose-effect re-creates `globalThis.__importHarness`
+  // on every state change (so its closures see the latest state), so
+  // we re-read it here instead of using the stale initialHarness ref.
+  const harness = (globalThis as unknown as { __importHarness: ImportOverrideHarnessApi }).__importHarness;
+  assert.ok(harness, 'harness API must be re-exposed after the import');
+
+  // BUG-B-03 follow-up contract: the import must win. Specifically:
+  //   - leads is the imported array (NOT empty from a URL-effect reset)
+  //   - currentRecordId is the imported recordId (NOT the URL value)
+  //   - patientId is the imported patientId
+  const after = harness.getState();
+  assert.deepEqual(
+    after.leads,
+    importedLeads,
+    'B-03 follow-up: imported leads must remain on the canvas — the URL effect must not clobber them',
+  );
+  assert.equal(
+    after.currentRecordId,
+    'rec_200',
+    'B-03 follow-up: internal currentRecordId must follow the import, not the URL',
+  );
+  assert.equal(
+    after.patientId,
+    'p2',
+    'B-03 follow-up: internal patientId must follow the import, not the URL',
+  );
+});
+
+test('B-03 follow-up: URL navigation to a NEW recordId after an import must still reset per-record state', () => {
+  const store = buildTestStore();
+
+  // Mount at rec_100, then import rec_200, then assert that navigating
+  // the URL to rec_300 (a *third*, brand-new recordId) still triggers
+  // the URL effect's reset. This is the dual guarantee: the URL effect
+  // is no longer over-eager (B-03 follow-up), but it is not under-eager
+  // either — actual URL changes still reset the canvas.
+  const { unmount } = render(
+    <Provider store={store}>
+      <MemoryRouter initialEntries={['/annotation/rec_100?patientId=p1']}>
+        <Routes>
+          <Route path="/annotation/:recordId" element={<ImportOverrideHarness />} />
+        </Routes>
+      </MemoryRouter>
+    </Provider>,
+  );
+
+  const initialHarness = (globalThis as unknown as { __importHarness: ImportOverrideHarnessApi }).__importHarness;
+  assert.ok(initialHarness, 'harness API must be exposed via globalThis after mount');
+
+  // Import rec_200.
+  act(() => {
+    initialHarness.applyImport([buildLead('I', 6)], 'rec_200', 'p2');
+  });
+
+  // Re-read the harness so the assertion sees the post-import state.
+  const harnessAfterImport = (globalThis as unknown as { __importHarness: ImportOverrideHarnessApi }).__importHarness;
+  assert.equal(harnessAfterImport.getState().currentRecordId, 'rec_200');
+  assert.equal(harnessAfterImport.getState().leads.length, 1);
+
+  // Unmount + remount with a new URL recordId (rec_300). The cleanest
+  // way to navigate a MemoryRouter to a new param is unmount/remount
+  // with a different initialEntries — the harness's URL effect fires
+  // on the new mount and the ref resets to '' so it processes rec_300.
+  unmount();
+  render(
+    <Provider store={store}>
+      <MemoryRouter initialEntries={['/annotation/rec_300?patientId=p3']}>
+        <Routes>
+          <Route path="/annotation/:recordId" element={<ImportOverrideHarness />} />
+        </Routes>
+      </MemoryRouter>
+    </Provider>,
+  );
+
+  const harnessAfter = (globalThis as unknown as { __importHarness: ImportOverrideHarnessApi }).__importHarness;
+  assert.ok(harnessAfter, 'harness API must be exposed via globalThis after re-mount');
+  const finalState = harnessAfter.getState();
+  assert.equal(
+    finalState.currentRecordId,
+    'rec_300',
+    'B-03 dual: URL navigation to a brand-new recordId must update currentRecordId',
+  );
+  assert.equal(
+    finalState.leads.length,
+    0,
+    'B-03 dual: URL navigation to a brand-new recordId must clear imported leads',
+  );
+  assert.equal(finalState.patientId, 'p3', 'B-03 dual: URL navigation to a brand-new recordId must update patientId');
 });
