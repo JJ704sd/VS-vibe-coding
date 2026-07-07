@@ -1,5 +1,6 @@
 ﻿import React, { useState } from 'react';
 import {
+  Alert,
   Card,
   Modal,
   Row,
@@ -137,6 +138,19 @@ const AnnotationStudio: React.FC = () => {
   const [playbackCursor, setPlaybackCursor] = useState(0);
   const [playbackStep, setPlaybackStep] = useState(24);
   const [playbackWindowSize, setPlaybackWindowSize] = useState(DEFAULT_PLAYBACK_WINDOW);
+  // B-06: tracks whether firebaseService.initialize() failed so the page can
+  // render a top-level error Alert. We seed it from getLastInitError() so a
+  // remount (e.g. after a route change) re-surfaces the banner without the
+  // init promise having to re-reject. The Alert is dismissible; the underlying
+  // state still drives the failure flag for downstream code paths.
+  const [firebaseInitError, setFirebaseInitError] = useState<unknown>(
+    () => firebaseService.getLastInitError()
+  );
+  // B-07: debounce window for "cloud save failed" toasts so a 1Hz save loop
+  // that fails 50 times in a row does not spam 50 toasts. 5s strikes a balance
+  // between "user actually sees something" and "user does not mute the tab".
+  // Stored as a ref (not state) so updates do not trigger a re-render.
+  const lastSaveErrorToastAtRef = useRef<number>(0);
 
   // Drop every piece of per-record state. Used by:
   //   1. The URL-switch effect below (B-03) when navigating from one record
@@ -202,10 +216,44 @@ const AnnotationStudio: React.FC = () => {
   // REACT_APP_FIREBASE_* env vars are not set, the warning inside
   // initialize() handles the empty-config path; we still await so the
   // SDK import is cached before the user adds the first annotation.
+  //
+  // B-06: instead of swallowing the failure in a console.warn, register an
+  // onInitFailure listener with the firebaseService so the failure surfaces
+  // as both an `Alert` at the top of the page and a `message.error()` toast.
+  // The existing `.catch()` is kept as a safety net (the promise still
+  // rejects) and as a developer-facing breadcrumb; the listener is the
+  // user-visible path.
   useEffect(() => {
+    // Seed the banner on mount in case the singleton already failed in a
+    // previous mount cycle (e.g. the user navigated away and back).
+    const preExistingError = firebaseService.getLastInitError();
+    if (preExistingError) {
+      setFirebaseInitError(preExistingError);
+    }
+
+    const handleInitFailure = (error: unknown): void => {
+      setFirebaseInitError(error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      const description = err.message || '未知错误,请检查 REACT_APP_FIREBASE_* 环境变量';
+      void message.error(`Firebase 初始化失败: ${description}。标注将无法云端保存。`);
+    };
+
+    firebaseService.setOnInitFailure(handleInitFailure);
+
     void firebaseService.initialize().catch((error) => {
+      // The listener above already surfaces the user-visible Alert + toast.
+      // We keep this `.catch()` so the unhandled promise is not logged as a
+      // warning, and so a developer tailing the console can still see the
+      // raw error.
       console.warn('[AnnotationStudio] Firebase lazy init failed:', error);
     });
+
+    return () => {
+      // Detach the listener on unmount so a remount re-registers cleanly.
+      // Passing `null` (rather than the old closure) also avoids the
+      // listener firing against a stale component instance.
+      firebaseService.setOnInitFailure(null);
+    };
   }, []);
 
   const cloneLeads = (inputLeads: ECGLead[]): ECGLead[] =>
@@ -363,7 +411,26 @@ const AnnotationStudio: React.FC = () => {
       try {
         await firebaseService.updateRecordAnnotations(recordId, annots);
       } catch (error) {
-        console.warn('[AnnotationStudio] Failed to save annotations:', error);
+        // B-07: surface the failure to the user. Without this, a failing
+        // Firestore write (deny rule, network, project-not-found, …) just
+        // logs a console.warn and the user's annotations silently disappear
+        // on the next refresh. The 5s debounce via
+        // `lastSaveErrorToastAtRef` keeps a 1Hz save loop from spamming
+        // 50 toasts in a row, but still fires the first error in real
+        // time so the user knows the cloud save is broken.
+        const err = error instanceof Error ? error : new Error(String(error));
+        const description = err.message || '未知错误,请检查 Firebase 配置或网络';
+        const now = Date.now();
+        const SUPPRESS_WINDOW_MS = 5_000;
+        if (now - lastSaveErrorToastAtRef.current > SUPPRESS_WINDOW_MS) {
+          lastSaveErrorToastAtRef.current = now;
+          void message.error(`云端保存失败: ${description}。本次标注暂未上传,刷新前请手动导出。`);
+        } else {
+          // Still log for developer visibility — the first toast already
+          // told the user something is wrong, so we just throttle the
+          // repeated noise.
+          console.warn('[AnnotationStudio] Failed to save annotations (toast debounced):', error);
+        }
       }
     },
     []
@@ -874,6 +941,25 @@ const AnnotationStudio: React.FC = () => {
 
   return (
     <div className="page-shell page-shell-wide">
+      {firebaseInitError ? (
+        // B-06: persistent failure banner so the user knows their work
+        // will not be saved to the cloud. The Alert is dismissible; the
+        // saveAnnotationsToFirebase guard (`!firebaseService.isInitialized()`)
+        // ensures a dismissed banner still produces a no-op save rather
+        // than throwing. Re-fetches getLastInitError() on next mount via
+        // the seeded `useState` initializer, so dismissing it for this
+        // session is a conscious choice.
+        <Alert
+          className="section-spacer"
+          data-testid="firebase-init-error-alert"
+          type="error"
+          showIcon
+          message="Firebase 初始化失败"
+          description="标注将无法云端保存,刷新会丢失。请检查 REACT_APP_FIREBASE_* 环境变量配置或网络连接。本地标注仍可使用,完成后请手动导出 JSON / CSV。"
+          closable
+          onClose={() => setFirebaseInitError(null)}
+        />
+      ) : null}
       <section className="page-hero">
         <div className="page-kicker">Workbench</div>
         <Title className="page-title">标注工作台</Title>
