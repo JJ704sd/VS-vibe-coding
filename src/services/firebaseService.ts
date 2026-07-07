@@ -73,6 +73,17 @@ type AuthHelpers = {
   onAuthStateChanged: typeof import('firebase/auth').onAuthStateChanged;
 };
 
+/**
+ * Callback shape for Firebase initialization failures. Receives the
+ * raw error thrown by either the dynamic `import()` of the SDK modules
+ * (network / build errors) or by `initializeApp` / `getFirestore` /
+ * `getStorage` / `getAuth` (config / project errors). The callback is
+ * invoked once per failed init attempt; subsequent retries (via a new
+ * `initialize()` call after the previous one resolved) re-register
+ * themselves with the new attempt.
+ */
+export type FirebaseInitFailureListener = (error: unknown) => void;
+
 class FirebaseService {
   private app: FirebaseApp | null = null;
   private db: Firestore | null = null;
@@ -83,6 +94,12 @@ class FirebaseService {
   private fs: FirestoreHelpers | null = null;
   private st: StorageHelpers | null = null;
   private au: AuthHelpers | null = null;
+  // Failure listener + last init error, exposed via setOnInitFailure
+  // and getLastInitError for UI feedback. Stored on the instance (not
+  // module-scope) so the singleton's state survives across calls and
+  // matches the rest of the service's pattern.
+  private onInitFailureListener: FirebaseInitFailureListener | null = null;
+  private lastInitError: unknown = null;
 
   /**
    * Lazily load the Firebase SDK and initialize the app + Firestore +
@@ -97,57 +114,89 @@ class FirebaseService {
    * main entrypoint. Webpack's `firebase` cacheGroup is also set to
    * `chunks: 'async'` so these end up in a separate async chunk that
    * AnnotationStudio pulls only when the user actually opens the workbench.
+   *
+   * Failure handling (audit B-06): if the dynamic import or any of the
+   * SDK constructors throws, we capture the error on `lastInitError`
+   * and invoke `onInitFailureListener` (if registered) so the UI can
+   * surface a user-visible Alert + toast. The promise still rejects so
+   * existing `.catch()` call sites (e.g. the `console.warn` in
+   * AnnotationStudio) keep working.
    */
   initialize(config?: FirebaseConfig): Promise<void> {
     if (this.initialized) return Promise.resolve();
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
-      const [
-        { initializeApp },
-        firestoreMod,
-        storageMod,
-        authMod,
-      ] = await Promise.all([
-        import(/* webpackChunkName: "firebase" */ 'firebase/app'),
-        import(/* webpackChunkName: "firebase" */ 'firebase/firestore'),
-        import(/* webpackChunkName: "firebase" */ 'firebase/storage'),
-        import(/* webpackChunkName: "firebase" */ 'firebase/auth'),
-      ]);
+      try {
+        const [
+          { initializeApp },
+          firestoreMod,
+          storageMod,
+          authMod,
+        ] = await Promise.all([
+          import(/* webpackChunkName: "firebase" */ 'firebase/app'),
+          import(/* webpackChunkName: "firebase" */ 'firebase/firestore'),
+          import(/* webpackChunkName: "firebase" */ 'firebase/storage'),
+          import(/* webpackChunkName: "firebase" */ 'firebase/auth'),
+        ]);
 
-      this.fs = {
-        collection: firestoreMod.collection,
-        doc: firestoreMod.doc,
-        getDoc: firestoreMod.getDoc,
-        getDocs: firestoreMod.getDocs,
-        addDoc: firestoreMod.addDoc,
-        updateDoc: firestoreMod.updateDoc,
-        deleteDoc: firestoreMod.deleteDoc,
-        query: firestoreMod.query,
-        where: firestoreMod.where,
-        orderBy: firestoreMod.orderBy,
-        limit: firestoreMod.limit,
-        startAfter: firestoreMod.startAfter,
-      };
-      this.st = {
-        ref: storageMod.ref,
-        uploadBytes: storageMod.uploadBytes,
-        getDownloadURL: storageMod.getDownloadURL,
-        deleteObject: storageMod.deleteObject,
-      };
-      this.au = {
-        signInWithEmailAndPassword: authMod.signInWithEmailAndPassword,
-        createUserWithEmailAndPassword: authMod.createUserWithEmailAndPassword,
-        signOut: authMod.signOut,
-        onAuthStateChanged: authMod.onAuthStateChanged,
-      };
+        this.fs = {
+          collection: firestoreMod.collection,
+          doc: firestoreMod.doc,
+          getDoc: firestoreMod.getDoc,
+          getDocs: firestoreMod.getDocs,
+          addDoc: firestoreMod.addDoc,
+          updateDoc: firestoreMod.updateDoc,
+          deleteDoc: firestoreMod.deleteDoc,
+          query: firestoreMod.query,
+          where: firestoreMod.where,
+          orderBy: firestoreMod.orderBy,
+          limit: firestoreMod.limit,
+          startAfter: firestoreMod.startAfter,
+        };
+        this.st = {
+          ref: storageMod.ref,
+          uploadBytes: storageMod.uploadBytes,
+          getDownloadURL: storageMod.getDownloadURL,
+          deleteObject: storageMod.deleteObject,
+        };
+        this.au = {
+          signInWithEmailAndPassword: authMod.signInWithEmailAndPassword,
+          createUserWithEmailAndPassword: authMod.createUserWithEmailAndPassword,
+          signOut: authMod.signOut,
+          onAuthStateChanged: authMod.onAuthStateChanged,
+        };
 
-      const firebaseConfig = config || getFirebaseConfigFromEnv();
-      this.app = initializeApp(firebaseConfig);
-      this.db = firestoreMod.getFirestore(this.app);
-      this.storage = storageMod.getStorage(this.app);
-      this.auth = authMod.getAuth(this.app);
-      this.initialized = true;
+        const firebaseConfig = config || getFirebaseConfigFromEnv();
+        this.app = initializeApp(firebaseConfig);
+        this.db = firestoreMod.getFirestore(this.app);
+        this.storage = storageMod.getStorage(this.app);
+        this.auth = authMod.getAuth(this.app);
+        this.initialized = true;
+        this.lastInitError = null;
+      } catch (error) {
+        this.lastInitError = error;
+        // Notify the registered listener (UI feedback). The listener is
+        // best-effort — a throw inside it must not mask the original
+        // init error or break concurrent callers waiting on the same
+        // shared promise. We log the listener error and re-throw the
+        // original init error below.
+        if (this.onInitFailureListener) {
+          try {
+            this.onInitFailureListener(error);
+          } catch (listenerError) {
+            console.warn(
+              '[FirebaseService] onInitFailureListener threw:',
+              listenerError,
+            );
+          }
+        }
+        // Reset the in-flight promise so a later `initialize()` call
+        // can retry. Without this, a single failed init would lock the
+        // service out for the lifetime of the page.
+        this.initPromise = null;
+        throw error;
+      }
     })();
 
     return this.initPromise;
@@ -155,6 +204,35 @@ class FirebaseService {
 
   isInitialized(): boolean {
     return this.initialized;
+  }
+
+  /**
+   * Register (or clear, with `null`) a listener for Firebase init
+   * failures. The listener fires once per failed `initialize()` call,
+   * after the error is captured on `lastInitError` but before the
+   * returned promise rejects. The listener receives the raw error and
+   * is responsible for any user-visible surface (toast, banner, …).
+   *
+   * Only one listener is supported at a time. Callers mounting later
+   * (e.g. AnnotationStudio remounts after a route change) overwrite
+   * earlier registrations; callers unmounting should pass `null` to
+   * avoid dangling listeners. The internal `initPromise` is reset on
+   * failure, so a later `setOnInitFailure(newListener)` +
+   * `initialize()` will re-fire the new listener.
+   */
+  setOnInitFailure(listener: FirebaseInitFailureListener | null): void {
+    this.onInitFailureListener = listener;
+  }
+
+  /**
+   * Return the error captured by the most recent failed `initialize()`
+   * call, or `null` if the last init succeeded / has not run. UI code
+   * can read this on mount to render an Alert without having to wire
+   * its own listener, and to re-show the Alert on remount even if the
+   * init failure happened in a previous mount cycle.
+   */
+  getLastInitError(): unknown {
+    return this.lastInitError;
   }
 
   /**
