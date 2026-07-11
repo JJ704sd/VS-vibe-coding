@@ -1,0 +1,63 @@
+%% ECG Annotation & Analysis Platform - interview architecture source
+%% Current-state components are solid; proposed evolution is dashed.
+flowchart LR
+  subgraph Browser[浏览器端 React 工作台]
+    Router[React Router + lazy pages]
+    CaseUI[病例/仪表盘页面]
+    Studio[AnnotationStudio]
+    Canvas[ECGCanvas + WaveformRenderer\nFabric.js 分层画布]
+    Redux[Redux Toolkit\ncaseSlice + ecgSlice]
+    Parser[ecgParserService\nJSON/DICOM/HL7/WFDB pair]
+    Signal[SignalProcessor\n滤波/归一化/R 峰/特征]
+    Model[ModelService\nTF.js + IndexedDB cache]
+    Worker[Inference Worker\n可选后台推理]
+    Export[exportUtils\nJSON/CSV/TCX helper]
+    Offline[offline queue / local fallback]
+  end
+
+  subgraph LocalServices[本机服务]
+    MockAPI[Node mock-api :4000\n病例与 PTB-XL 20 条备份]
+    Sidecar[FastAPI ECGFounder sidecar :6090]
+    Assistant[Memory + RAG + case/training diagnostics]
+    TrainState[shared_state / param_stats / train_task]
+    Runner[ECGFounder runner\n训练进程与 outputs]
+  end
+
+  subgraph External[可选外部依赖]
+    Firebase[Firebase/Firestore\n标注云端保存]
+    MiniMax[MiniMax upstream\nAPI key 只在 sidecar]
+    RealModel[/models/ecg-classifier/model.json]
+  end
+
+  Router --> CaseUI
+  Router --> Studio
+  CaseUI -->|HTTP JSON| MockAPI
+  CaseUI --> Redux
+  Studio --> Parser
+  Parser --> Signal
+  Signal --> Canvas
+  Studio --> Redux
+  Redux --> Canvas
+  Studio --> Model
+  Model -->|remote then IndexedDB| RealModel
+  Model --> Worker
+  Studio -->|POST /api/ecg/analyze| Sidecar
+  Sidecar --> MiniMax
+  Studio -->|debounced annotation save| Firebase
+  Studio --> Export
+  Studio --> Offline
+  Offline -->|network error fallback| MockAPI
+  Router -->|training page| Sidecar
+  Sidecar --> TrainState
+  Runner --> TrainState
+  Sidecar --> Runner
+  Sidecar --> Assistant
+  Studio -->|case snapshot / ask| Assistant
+  Sidecar -.->|future: auth/audit/DB| SecureBackend[企业后端演进]
+
+  classDef browser fill:#e8f1fb,stroke:#2e74b5,color:#0b2545;
+  classDef service fill:#eef7f0,stroke:#3a7d44,color:#16351c;
+  classDef external fill:#fff4df,stroke:#a06b00,color:#4d3300;
+  class Router,CaseUI,Studio,Canvas,Redux,Parser,Signal,Model,Worker,Export,Offline browser;
+  class MockAPI,Sidecar,Assistant,TrainState,Runner service;
+  class Firebase,MiniMax,RealModel,SecureBackend external;
