@@ -120,6 +120,7 @@ module.exports = {
     static: {
       directory: path.join(__dirname, 'public'),
     },
+    historyApiFallback: true,
   },
   optimization: {
     runtimeChunk: 'single',
@@ -163,8 +164,15 @@ module.exports = {
   // performance.assetFilter so dev warns about vendor splits growing
   // past `maxAssetSize`. Source-map files are excluded so the dev
   // server output is not littered with .map size warnings.
+  //
+  // Dev mode disables the client overlay (`hints: false`) because
+  // webpack-dev-server v4 surfaces even `hints: 'warning'` results as
+  // a red "Compiled with problems" banner that blocks the canvas and
+  // makes screenshots / onboarding demos unusable. The CI gate in
+  // `webpack.config.js` still hard-fails prod builds with
+  // `hints: 'error'`, so the budget is enforced where it matters.
   performance: {
-    hints: 'warning',
+    hints: false,
     maxEntrypointSize: 1500000,
     maxAssetSize: 1500000,
     assetFilter: (assetName) => !assetName.endsWith('.map'),
