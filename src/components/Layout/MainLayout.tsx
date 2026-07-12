@@ -35,6 +35,11 @@ const pageMeta: Record<string, { title: string; subtitle: string; tag: string }>
     subtitle: '查看模型状态、准确率和运行策略。',
     tag: 'Models',
   },
+  '/training': {
+    title: 'ECGFounder 训练看板',
+    subtitle: '查看历史训练、最佳 F1、checkpoint 与实时训练进度。',
+    tag: 'Training',
+  },
   '/settings': {
     title: '系统设置',
     subtitle: '调整显示、采样与推理偏好。',
