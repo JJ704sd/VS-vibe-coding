@@ -1,9 +1,62 @@
 # ECG Annotation Platform Review
 
 日期：2026-05-24
-最后更新：2026-07-07
+最后更新：2026-07-12
 
-## 2026-07-07 batch 1+2 P1 closeout round (本轮新增)
+## 2026-07-12 README refresh + dev ergonomics round (本轮新增)
+
+围绕"GitHub 首页 README 提高可读性 + 加上实机演示截图"。本轮落 4
+个 feat commit + 1 个 closeout doc，按时间顺序：
+
+| SHA | 类型 | 摘要 |
+| --- | --- | --- |
+| `9b47f7d` | `fix(layout)` | `MainLayout.pageMeta` 漏 `/training`，训练看板 Header 会 fallback 到"仪表盘"，已补上 |
+| `eb0e146` | `fix(dev)` | `webpack.config.dev.js` 关 `performance.hints` + 开 `historyApiFallback`：消除 webpack-dev-server v4 的红色 "Compiled with problems" overlay（prod CI 仍 `hints: 'error'` 硬卡 1.5 MiB） |
+| `0f448b9` | `chore(repo)` | `.gitignore` 加 `.run-logs/`（dev server stdout/stderr 临时日志） |
+| `bd67a4e` | `docs(readme)` | README.md 重写 + `docs/screenshots/*.png` 5 张实机截图 + `scripts/shoot-screenshots.js`（Puppeteer + Edge headless，hash-router 导航，dismiss Firebase init 错误 toast） |
+
+**累计本轮范围**：1 个 layout 真 bug 修 + 1 个 dev 体验 fix + 1
+个 README 改头换面 + 截图基建。**无 P0/P1 残留**，因为这一轮根本
+没碰产品代码路径。
+
+**本轮残留 / 风险：**
+
+- **截图工具是 Puppeteer + Edge headless**，依赖 `C:\Program Files
+  (x86)\Microsoft\Edge\Application\msedge.exe` 路径硬编码。Linux
+  / macOS CI 上跑需要把这条换掉再考虑加进 pipeline。本次只在
+  Windows 本地手跑，没有 CI 化。
+- **README 截图是 mock 数据下拍的**——`modelService` 走 `mockPredict`、
+  病例数据来自内嵌 `mockClinic.ts` 20 条 PTB-XL 备份。截图对应的是
+  文档里"research preview, not a medical device"的真实状态,不
+  是替换为真实 TF.js model + 临床数据源后的样子。生产部署前需重拍
+  或重新筛选截图。
+- **`shoot-screenshots.js` 里 dismiss 的 `.ant-alert-error` + `.ant-
+  message` 是粗粒度**——如果将来真的接 Firebase 配上 api-key 后
+  出现**业务上需要展示的** error banner,会被脚本误删。需要把
+  selector 缩到只针对 Firebase init 失败那段，或者改成在截图前
+  注一层 mock。
+
+**验证**：
+
+- `npm run check` 全过：lint + typecheck + unit + production build +
+  `check:assets`。prod entrypoint `1.5 MiB` 仍在 `1.6 MiB` budget
+  内，`check:assets` 0 failures（1 个 expected `model.json` warn 是
+  文档化的 mock 状态）。
+- `git push origin main` 一次性过，无 SSL 抖动（先 `git ls-remote`
+  探活,直接 `git push`）。`26d6ae8..bd67a4e main -> main`。
+
+**没做但可能要做（不进 round closeout,仅备忘）**：
+
+- 5 张截图是 SPA 启动后未登录态拍的。Annotation Studio 的"标注 0"
+  卡片是因为没真载入 ECG 记录。如果 README 想展示带数据的截图，
+  要在 `shoot-screenshots.js` 里加一个 fixture——载入 mockClinic 里
+  第一个 patient + record 之后再去拍 #/annotation。
+- `REVIEW.md` 本轮没拆段风险 #N 编号,因为这一轮没 P0/P1。如果
+  觉得有需要可以给"dev overlay 挡 dashboard"分配一个 #11 风险
+  编号(已 close)。我倾向不编,因为 webpack.config.dev.js 的 fix
+  已经把 overlay 永久关掉了,没有 reopen 的可能。
+
+## 2026-07-07 batch 1+2 P1 closeout round
 
 围绕 2026-07-07 全面 bug 审计报告（`docs/audits/2026-07-07-FINAL-REPORT.md`）
 的 P0 + P1 修复路线，本轮落 4 个 track（Track P / S / B / P2）+ Track D2

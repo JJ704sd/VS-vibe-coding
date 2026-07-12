@@ -6,6 +6,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-07-12 README refresh + dev ergonomics round
+
+Five commits: one layout bug fix, one dev webpack config fix, one
+gitignore tidy, one screenshot infrastructure, one full README rewrite.
+Goal: ship a GitHub-ready landing page that shows what the platform
+actually looks like when it runs.
+
+#### Added
+- **`docs/screenshots/*.png`** — five real captures from the running dev
+  server at 1440×900 (Dashboard, Case List, Annotation Studio, Training
+  Dashboard, AI Model Registry), referenced from the new README.
+- **`scripts/shoot-screenshots.js`** — Puppeteer + Edge headless helper.
+  Navigates by `window.location.hash` (the app uses `HashRouter`, so the
+  webpack-dev-server `historyApiFallback` quirks are avoided entirely),
+  waits for the page's anchor text, dismisses the by-design Firebase
+  init-failure toast + AntD `Alert` banner so the workbench content is
+  unobstructed, and strips the webpack-dev-server client overlay. Re-run
+  any time after `npm run dev:web` is up.
+
+#### Fixed
+- **`/training` Header fallback bug** (`9b47f7d`): `MainLayout.pageMeta`
+  only listed five routes, so navigating to `/#/training` rendered the
+  dashboard's `仪表盘 / 查看全局负载、模型状态与近期处理趋势。` copy in
+  the page header. Added the missing `/training` entry; the header now
+  reads `ECGFounder 训练看板 / 查看历史训练、最佳 F1、checkpoint 与实时训练进度。`
+  with the `Training` tag.
+- **Dev "Compiled with problems" overlay** (`eb0e146`):
+  `webpack.config.dev.js` flipped `performance.hints` from `'warning'`
+  to `false`. webpack-dev-server v4 surfaces even `hints: 'warning'`
+  results as a red overlay that covers the canvas and makes
+  screenshots / onboarding demos unusable. The CI gate in
+  `webpack.config.js` still hard-fails prod builds with
+  `hints: 'error'`, so the 1.5 MiB budget is enforced where it matters.
+  Also enabled `historyApiFallback` so direct deep-link GETs to SPA
+  paths return `index.html` (the React app still prefers hash routes
+  for screenshots; the fallback just makes deep links shareable).
+- **`.run-logs/`** (`0f448b9`): ignored — those are dev-server stdout /
+  stderr dumps written by background `npm run dev:web`, never source.
+
+#### Changed
+- **`README.md`** (`bd67a4e`): full rewrite into a GitHub landing page.
+  Hero block with tech stack badges, five-screenshot table covering the
+  primary workbenches, refreshed Quick Start / Tech Stack / Project
+  Structure / Tests / Demo-non-clinical-boundary sections, and pointers
+  to the audit + architecture docs. The screenshot script path moved
+  from `shotter-tmp/shoot.js` (a throwaway npm init folder) to
+  `scripts/shoot-screenshots.js`.
+
+#### Verification
+- `npm run check` — lint + typecheck + unit + production build +
+  `check:assets`. Prod entrypoint `1.5 MiB` (under the `1.6 MiB`
+  budget), `check:assets` `failures=0` (one expected `model.json`
+  warn is the documented mock state). No new tests added because the
+  changes are a doc refresh + two single-line fixes; adding a test
+  for a five-line `pageMeta` entry would be thin-wrapper noise.
+- `git push` — `26d6ae8..bd67a4e main -> main`, 7 commits total
+  (3 from the prior interview-architecture plan + 4 from this round).
+
+#### Out of scope (carried forward)
+- The interview-architecture DOCX / PDF / PNG artefacts already live
+  in `docs/interview/` from the prior round; not touched here.
+- `webpack.config.js` prod still has the same `1.5 MiB` cap. No
+  bundle work was done — the dev change only suppresses the overlay.
+
 The 2026-07-04 P0 audit + Canvas closeout round. Eight commits: one docs
 rewrite, one test infrastructure scaffold, one boundary-case test, two
 follow-up commits already shipped in 0.2.0 (kept here for traceability),
