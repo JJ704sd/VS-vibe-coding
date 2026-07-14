@@ -159,6 +159,20 @@ module.exports = {
           chunks: 'async',
           priority: 24,
         },
+        dexie: {
+          // Dexie is loaded via `await import('dexie')` from
+          // `modelCacheRepository`, which is itself only reached from
+          // the lazy `AnnotationStudio` chunk (useModelInference is
+          // the only consumer of `modelService` in production code).
+          // Without an async-only cacheGroup, the catch-all `vendor`
+          // rule below pulls ~70 KiB of Dexie into the main entry's
+          // vendors chunk and busts `maxEntrypointSize` (D-3 2026-07-14
+          // Dexie-landing round 1 commit 2).
+          test: /[\\/]node_modules[\\/]dexie[\\/]/,
+          name: 'dexie',
+          chunks: 'async',
+          priority: 23,
+        },
         antd: {
           test: /[\\/]node_modules[\\/](antd|@ant-design)[\\/]/,
           name: 'antd',
@@ -172,17 +186,17 @@ module.exports = {
           priority: 15,
         },
         vendor: {
-          // Match anything under node_modules EXCEPT firebase and
-          // @tensorflow, which have their own cacheGroups above. We
-          // use a function here because webpack 5 cacheGroup does not
-          // support an `exclude` field. Without this, the catch-all
-          // vendor chunk would pull firebase back into the main
-          // entrypoint whenever webpack decides the firebase async-only
-          // rule cannot apply.
+          // Match anything under node_modules EXCEPT firebase,
+          // @tensorflow, @firebase and dexie — each of which has its
+          // own async-only cacheGroup above. We use a function here
+          // because webpack 5 cacheGroup does not support an `exclude`
+          // field. Without this, the catch-all vendor chunk would pull
+          // those packages back into the main entrypoint whenever
+          // webpack decides their async-only rules cannot apply.
           test: (module) => {
             if (!module.resource) return false;
             if (!/[\\/]node_modules[\\/]/.test(module.resource)) return false;
-            return !/[\\/](firebase|@tensorflow|@firebase)[\\/]/.test(module.resource);
+            return !/[\\/](firebase|@tensorflow|@firebase|dexie)[\\/]/.test(module.resource);
           },
           name: 'vendors',
           chunks: 'all',

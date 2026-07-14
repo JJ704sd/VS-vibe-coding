@@ -17,9 +17,19 @@
 //   A-12  `mockPredict` and `generateHeatmap` aggregate across all leads
 //         (max amplitude / max abs) so a zero/empty first lead no longer
 //         hides signal in other leads.
+//
+// Dexie 集成 (2026-07-14, 三连击 commit 2 of 3):
+//   - loadModel 成功后通过 `modelCacheRepository.recordLoad` 把
+//     url/sizeBytes/lastLoadedAt/source 写到 Dexie 元数据表;binary
+//     (model.json + weights) 仍由 TF.js `indexeddb://` 落盘,两者
+//     互不干扰(不同 dbName)。
+//   - `useMockInference()` / outcome='failed' / dispose() 都不写 Dexie。
+//   - 纯函数 `buildModelCacheMetaFromLoadOutcome` 独立测,跟 recordLoad
+//     的副作用分开。
 
 import * as tf from '@tensorflow/tfjs';
 import { InferenceResult, ModelPrediction } from '../types';
+import { recordLoad } from './modelCacheRepository';
 
 /**
  * Single IndexedDB key namespace shared by `ModelService` and
@@ -66,6 +76,48 @@ export interface LoadModelResult {
   cacheWriteFailed: boolean;
 }
 
+/**
+ * `buildModelCacheMetaFromLoadOutcome` 的输入。记录"本次 load 关键
+ * 决策",纯函数本身不读 this / Date.now(),便于单测。
+ */
+export interface ModelCacheMetaInput {
+  outcome: ModelLoadOutcome;
+  /** TF.js `model.save(cacheKey)` 是否抛错(A-07 边界) */
+  cacheWriteFailed: boolean;
+  /** 加载是 cache 命中(remote 404 后从 IndexedDB 读出)还是远程下载 */
+  cacheHit: boolean;
+  /**
+   * 模型估算字节数。0 表示"未知",本函数不重写为 0(让调用方决定)。
+   * 真实 size 估算留给后续 PR(用 `this.model.weights[*].data().byteLength` 求和)。
+   */
+  sizeBytes: number;
+}
+
+/**
+ * 根据 `loadModel` 的结果计算要写入 Dexie 的元数据。
+ * - outcome !== 'loaded' → null(mock / failed 都不记,mock 不算"缓存的模型")
+ * - outcome === 'loaded' && cacheWriteFailed → { sizeBytes: 0, source: 'cache-write-failed' }
+ * - outcome === 'loaded' && !cacheWriteFailed && cacheHit → { sizeBytes, source: 'cache' }
+ * - outcome === 'loaded' && !cacheWriteFailed && !cacheHit → { sizeBytes, source: 'remote' }
+ *
+ * `lastLoadedAt` 由调用方注入,本函数不读 `Date.now()` —— 保证纯函数
+ * 性质,单测能精确控制时间戳。
+ */
+export function buildModelCacheMetaFromLoadOutcome(
+  input: ModelCacheMetaInput,
+  lastLoadedAt: number,
+): { sizeBytes: number; lastLoadedAt: number; source: 'remote' | 'cache' | 'cache-write-failed' } | null {
+  if (input.outcome !== 'loaded') return null;
+  if (input.cacheWriteFailed) {
+    return { sizeBytes: 0, lastLoadedAt, source: 'cache-write-failed' };
+  }
+  return {
+    sizeBytes: input.sizeBytes,
+    lastLoadedAt,
+    source: input.cacheHit ? 'cache' : 'remote',
+  };
+}
+
 class ModelService {
   private model: tf.LayersModel | null = null;
   private modelUrl = '';
@@ -82,6 +134,7 @@ class ModelService {
     this.mockOptIn = false;
     this.outcome = 'failed';
 
+    let cacheHit = false;
     let cacheWriteFailed = false;
 
     // 1) Try to load the remote model.
@@ -95,6 +148,7 @@ class ModelService {
       try {
         this.model = await tf.loadLayersModel(cacheKey);
         this.outcome = 'loaded';
+        cacheHit = true;
       } catch (cacheReadError) {
         console.error('[ModelService] Failed to load cached model:', cacheReadError);
         this.model = null;
@@ -118,7 +172,57 @@ class ModelService {
       }
     }
 
+    // 4) Record metadata to Dexie. Non-fatal: `recordLoad` itself
+    //    swallows Dexie errors and returns { recorded: false }.
+    //    We do NOT throw, do NOT touch this.outcome / this.model —
+    //    a Dexie failure here cannot degrade the in-memory model
+    //    (audit A-07 invariant).
+    await this.persistCacheMetadata(cacheHit, cacheWriteFailed);
+
     return { outcome: this.outcome, cacheWriteFailed };
+  }
+
+  /**
+   * 把"本次 load 的关键决策"转成元数据并写入 Dexie。
+   * 只在 outcome === 'loaded' 时写;'failed' / 'mock' 不写。
+   * Dexie 失败由 `recordLoad` 内部 swallow,本方法不抛、不影响
+   * `this.outcome` / `this.model`。
+   *
+   * 真实 size 估算(遍历 `this.model.weights` 求 `data().byteLength` 之和)
+   * 留给后续 PR;目前 sizeBytes=0 表示"未知"。
+   */
+  private async persistCacheMetadata(
+    cacheHit: boolean,
+    cacheWriteFailed: boolean,
+  ): Promise<void> {
+    await this._persistCacheMetadataForTests(
+      this.modelUrl,
+      this.outcome,
+      cacheHit,
+      cacheWriteFailed,
+    );
+  }
+
+  /**
+   * 测试/调试用:接受 outcome / cacheHit / cacheWriteFailed,直接调
+   * `buildModelCacheMetaFromLoadOutcome` + `recordLoad`。允许单测在
+   * 不真跑 `tf.loadLayersModel` 的前提下,验证 ModelService 集成
+   * Dexie 的所有 case。
+   *
+   * 生产代码不应调(下划线前缀 + 参数绕过 this.outcome)。
+   */
+  async _persistCacheMetadataForTests(
+    modelUrl: string,
+    outcome: ModelLoadOutcome,
+    cacheHit: boolean,
+    cacheWriteFailed: boolean,
+  ): Promise<void> {
+    const meta = buildModelCacheMetaFromLoadOutcome(
+      { outcome, cacheWriteFailed, cacheHit, sizeBytes: 0 },
+      Date.now(),
+    );
+    if (meta === null) return;
+    await recordLoad(modelUrl, meta);
   }
 
   /**

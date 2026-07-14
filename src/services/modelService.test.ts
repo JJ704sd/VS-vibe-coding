@@ -24,13 +24,21 @@
 // loadModel is observed to leave `outcome` in 'loaded' / 'failed'
 // and to surface `cacheWriteFailed: true` via the LoadModelResult
 // shape that the UI now consumes.
+//
+// Dexie 集成 (commit 2, 2026-07-14):
+//   - `buildModelCacheMetaFromLoadOutcome` 纯函数全 case
+//   - `ModelService._persistCacheMetadataForTests` 在不同 outcome
+//     组合下对 Dexie 的副作用(useMockInference / dispose 不写)
 
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import test from 'node:test';
+
+import Dexie from 'dexie';
 
 import {
   MODEL_CACHE_NAMESPACE,
+  buildModelCacheMetaFromLoadOutcome,
   getModelCacheKey,
   pickDominantLead,
   buildInputTensor,
@@ -39,6 +47,13 @@ import {
   modelService,
 } from './modelService.ts';
 import ModelService from './modelService.ts';
+import {
+  _resetForTests as dexieReset,
+  _setInstanceForTests as dexieSetInstance,
+  listModels as dexieListModels,
+} from './modelCacheRepository.ts';
+import type { ModelCacheMeta } from './modelCacheRepository.ts';
+import type { Table } from 'dexie';
 
 // ---------------------------------------------------------------------------
 // A-08: cache namespace is shared (hook + service produce identical keys)
@@ -287,6 +302,228 @@ describe('ModelService state machine (audits A-06 / A-07)', () => {
 describe('buildInputTensor — shared tensor adapter (audit A-14)', () => {
   it('is exported as a top-level function from modelService.ts', () => {
     assert.equal(typeof buildInputTensor, 'function');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dexie 集成 (commit 2, 2026-07-14):
+//   - 纯函数 `buildModelCacheMetaFromLoadOutcome` 全 case 覆盖
+//   - `ModelService._persistCacheMetadataForTests` 在不同 outcome / cacheHit
+//     / cacheWriteFailed 组合下对 Dexie 的副作用
+//   - `useMockInference()` / `dispose()` 不动 Dexie(回归 A-06 边界)
+//
+// 策略:
+//   fake-indexeddb(由 test-setup.mjs 注入)让 Dexie 真 open。
+//   顶层 beforeEach / afterEach 重置单例 + 清 db,保证互不污染。
+//   不调 `tf.loadLayersModel`(项目 test runner 不能 mock 它的 getter),
+//   通过 `_persistCacheMetadataForTests` 走纯函数路径覆盖所有 case。
+// ---------------------------------------------------------------------------
+
+const DEXIE_DB_NAME = 'ecg-model-cache';
+
+async function wipeDexie(): Promise<void> {
+  try {
+    await Dexie.delete(DEXIE_DB_NAME);
+  } catch {
+    // 第一次跑 delete 不存在,忽略。
+  }
+}
+
+beforeEach(async () => {
+  dexieReset();
+  await wipeDexie();
+});
+
+afterEach(async () => {
+  dexieReset();
+  await wipeDexie();
+});
+
+describe('buildModelCacheMetaFromLoadOutcome (commit 2, pure)', () => {
+  it('returns null when outcome is "failed" — failed loads are not cached metadata', () => {
+    const r = buildModelCacheMetaFromLoadOutcome(
+      { outcome: 'failed', cacheWriteFailed: false, cacheHit: false, sizeBytes: 100 },
+      1000,
+    );
+    assert.equal(r, null);
+  });
+
+  it('returns null when outcome is "mock" — mock is opt-in fallback, not a cached model', () => {
+    const r = buildModelCacheMetaFromLoadOutcome(
+      { outcome: 'mock', cacheWriteFailed: false, cacheHit: false, sizeBytes: 100 },
+      1000,
+    );
+    assert.equal(r, null);
+  });
+
+  it('returns { source: "remote", sizeBytes } when outcome is "loaded", not cacheHit, save() ok', () => {
+    const r = buildModelCacheMetaFromLoadOutcome(
+      { outcome: 'loaded', cacheWriteFailed: false, cacheHit: false, sizeBytes: 4096 },
+      2000,
+    );
+    assert.deepEqual(r, { sizeBytes: 4096, lastLoadedAt: 2000, source: 'remote' });
+  });
+
+  it('returns { source: "cache", sizeBytes } when outcome is "loaded", cacheHit=true, save() ok', () => {
+    const r = buildModelCacheMetaFromLoadOutcome(
+      { outcome: 'loaded', cacheWriteFailed: false, cacheHit: true, sizeBytes: 4096 },
+      3000,
+    );
+    assert.deepEqual(r, { sizeBytes: 4096, lastLoadedAt: 3000, source: 'cache' });
+  });
+
+  it('returns { source: "cache-write-failed", sizeBytes: 0 } when cacheWriteFailed=true (overrides cacheHit)', () => {
+    // A-07 边界:cache 写失败时,无论从哪来都标 cache-write-failed,size 标 0(未知)
+    const r = buildModelCacheMetaFromLoadOutcome(
+      { outcome: 'loaded', cacheWriteFailed: true, cacheHit: true, sizeBytes: 4096 },
+      4000,
+    );
+    assert.deepEqual(r, { sizeBytes: 0, lastLoadedAt: 4000, source: 'cache-write-failed' });
+  });
+
+  it('forwards lastLoadedAt verbatim — does NOT mutate it from any side channel', () => {
+    const r1 = buildModelCacheMetaFromLoadOutcome(
+      { outcome: 'loaded', cacheWriteFailed: false, cacheHit: false, sizeBytes: 1 },
+      1,
+    );
+    const r2 = buildModelCacheMetaFromLoadOutcome(
+      { outcome: 'loaded', cacheWriteFailed: false, cacheHit: false, sizeBytes: 1 },
+      1_000_000,
+    );
+    assert.equal(r1?.lastLoadedAt, 1);
+    assert.equal(r2?.lastLoadedAt, 1_000_000);
+  });
+
+  it('passes sizeBytes=0 through unchanged (caller signals "unknown")', () => {
+    // commit 2 阶段 sizeBytes 暂未实算,一直传 0;build 不应自作主张改写
+    const r = buildModelCacheMetaFromLoadOutcome(
+      { outcome: 'loaded', cacheWriteFailed: false, cacheHit: false, sizeBytes: 0 },
+      5,
+    );
+    assert.deepEqual(r, { sizeBytes: 0, lastLoadedAt: 5, source: 'remote' });
+  });
+});
+
+describe('ModelService + Dexie 集成 (commit 2)', () => {
+  it('_persistCacheMetadataForTests("loaded", false, false) writes source="remote" to Dexie', async () => {
+    const svc = new ModelService();
+    await svc._persistCacheMetadataForTests('/models/a.json', 'loaded', false, false);
+
+    const { items, available } = await dexieListModels();
+    assert.equal(available, true);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].url, '/models/a.json');
+    assert.equal(items[0].source, 'remote');
+    assert.equal(items[0].sizeBytes, 0);
+  });
+
+  it('_persistCacheMetadataForTests("loaded", true, false) writes source="cache" to Dexie', async () => {
+    const svc = new ModelService();
+    await svc._persistCacheMetadataForTests('/models/b.json', 'loaded', true, false);
+
+    const { items } = await dexieListModels();
+    assert.equal(items.length, 1);
+    assert.equal(items[0].source, 'cache');
+  });
+
+  it('_persistCacheMetadataForTests("loaded", false, true) writes source="cache-write-failed" + sizeBytes=0 (A-07)', async () => {
+    const svc = new ModelService();
+    await svc._persistCacheMetadataForTests('/models/c.json', 'loaded', false, true);
+
+    const { items } = await dexieListModels();
+    assert.equal(items.length, 1);
+    assert.equal(items[0].source, 'cache-write-failed');
+    assert.equal(items[0].sizeBytes, 0);
+  });
+
+  it('_persistCacheMetadataForTests("failed", *, *) does NOT write to Dexie', async () => {
+    const svc = new ModelService();
+    await svc._persistCacheMetadataForTests('/models/d.json', 'failed', false, false);
+    await svc._persistCacheMetadataForTests('/models/d2.json', 'failed', true, true);
+
+    const { items } = await dexieListModels();
+    assert.equal(items.length, 0, 'failed loads must not be recorded');
+  });
+
+  it('_persistCacheMetadataForTests("mock", *, *) does NOT write to Dexie (mock is not a cached model)', async () => {
+    const svc = new ModelService();
+    await svc._persistCacheMetadataForTests('/models/e.json', 'mock', false, false);
+    await svc._persistCacheMetadataForTests('/models/e2.json', 'mock', true, false);
+
+    const { items } = await dexieListModels();
+    assert.equal(items.length, 0, 'mock fallback must not be recorded');
+  });
+
+  it('re-loading the same url upserts in Dexie (sizeBytes + lastLoadedAt updated)', async () => {
+    const svc = new ModelService();
+    await svc._persistCacheMetadataForTests('/models/f.json', 'loaded', false, false);
+    const first = (await dexieListModels()).items[0];
+
+    // 等几毫秒,确保 lastLoadedAt 不同
+    await new Promise((r) => setTimeout(r, 5));
+    await svc._persistCacheMetadataForTests('/models/f.json', 'loaded', true, false);
+    const second = (await dexieListModels()).items[0];
+
+    assert.equal(second.url, '/models/f.json', 'upsert keeps the same row');
+    assert.equal(second.source, 'cache', 'source updated to latest');
+    assert.ok(
+      second.lastLoadedAt > first.lastLoadedAt,
+      'lastLoadedAt should advance on second load',
+    );
+  });
+
+  it('useMockInference() does NOT write to Dexie (A-06 boundary)', async () => {
+    const svc = new ModelService();
+    svc.useMockInference();
+    // 调一次持久化方法,模拟"用户进 mock 后,UI 还会照常调 loadModel
+    // 风格 API" — 但 outcome='mock' 时 buildModelCacheMetaFromLoadOutcome
+    // 返回 null,不应写。
+    await svc._persistCacheMetadataForTests('/models/g.json', 'mock', false, false);
+
+    const { items } = await dexieListModels();
+    assert.equal(items.length, 0, 'mock must not be recorded');
+    assert.equal(svc.getLoadOutcome(), 'mock');
+  });
+
+  it('dispose() does NOT touch Dexie — the cached entry survives a session reset', async () => {
+    const svc = new ModelService();
+    await svc._persistCacheMetadataForTests('/models/h.json', 'loaded', false, false);
+
+    // dispose() 清的是内存 model + worker,不碰 Dexie 元数据
+    svc.dispose();
+    const { items } = await dexieListModels();
+    assert.equal(items.length, 1, 'cached metadata must survive dispose()');
+    assert.equal(items[0].url, '/models/h.json');
+  });
+
+  it('does NOT throw when Dexie is unavailable — loadModel result shape is preserved', async () => {
+    // 注入会失败的 fake Dexie:plain object,只满足 modelCacheRepository 内部
+    // _db 的形状(有 open / models)。open() 永远 reject → getDb() 返回 null →
+    // recordLoad 走 'unavailable' 降级,recordLoad 不抛。
+    type DexieWithModels = Dexie & { models: Table<ModelCacheMeta, string> };
+    const failing = {
+      name: 'ecg-model-cache',
+      open: () => Promise.reject(new Error('IndexedDB unavailable (simulated)')) as ReturnType<Dexie['open']>,
+      models: {
+        put: async () => 'ok',
+        orderBy: () => ({ reverse: () => ({ toArray: async () => [] }) }),
+        delete: async () => {},
+        clear: async () => {},
+      } as unknown as Table<ModelCacheMeta, string>,
+    } as unknown as DexieWithModels;
+    dexieSetInstance(failing);
+
+    // 静音 getDb 内部失败时打的 warn
+    const originalWarn = console.warn;
+    console.warn = () => undefined;
+    try {
+      const svc = new ModelService();
+      await assert.doesNotReject(async () => {
+        await svc._persistCacheMetadataForTests('/models/i.json', 'loaded', false, false);
+      });
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 });
 
