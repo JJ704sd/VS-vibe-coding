@@ -6,6 +6,7 @@
 // script, BEFORE the ts-resolver register hook. This means happy-dom must
 // already be installed (i.e. `npm install` has been run) when tests start.
 
+import 'fake-indexeddb/auto';
 import { Window } from 'happy-dom';
 
 const window = new Window({ url: 'http://localhost/' });
