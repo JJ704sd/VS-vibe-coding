@@ -67,8 +67,8 @@ function formatSize(sizeBytes: number): string {
   return `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function formatRelativeTime(epochMs: number, now: number = Date.now()): string {
-  const diffMs = now - epochMs;
+function formatRelativeTime(epochMs: number): string {
+  const diffMs = Date.now() - epochMs;
   if (diffMs < 0) return '刚刚';
   const sec = Math.floor(diffMs / 1000);
   if (sec < 60) return `${sec} 秒前`;

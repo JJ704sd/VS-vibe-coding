@@ -292,21 +292,38 @@ const searchResults = await firebase.firestore()
 
 #### 模型缓存策略
 
+实际实现是**两层**:`TF.js 自带的 indexeddb://` 落 model binary,Dexie
+只索引元数据。两者使用不同 IndexedDB dbName,互不干扰。
+
 ```typescript
-// 使用 IndexedDB 缓存模型
-const db = new Dexie('ModelCache');
-db.version(1).stores({
-  models: '++id, name, version, data, timestamp'
+// 1) TF.js 自己把 model.json + weights 写到 indexeddb://key
+//    (key 由 modelService 的 getModelCacheKey 生成,带
+//    MODEL_CACHE_NAMESPACE 前缀,与 Dexie 区分)
+const cacheKey = getModelCacheKey('/models/ecg-classifier/model.json');
+await this.model.save(cacheKey);          // 写 binary
+
+// 2) Dexie 在另一个 dbName 里记元数据(2026-07-14 落地,
+//    见 modelCacheRepository.ts)
+//    - dbName: 'ecg-model-cache'(独立于 TF.js 默认的 'tensorflowjs')
+//    - schema: &url, lastLoadedAt, source
+//    - source: 'remote' | 'cache' | 'cache-write-failed'
+import { recordLoad } from './modelCacheRepository';
+await recordLoad(modelUrl, {
+  sizeBytes: 0,            // 实算留给后续 PR(目前 0 = 未知)
+  lastLoadedAt: Date.now(),
+  source: cacheHit ? 'cache' : 'remote',
 });
 
-// 离线检测与缓存
-if (navigator.onLine) {
-  await model.save('indexeddb://my-model');
-} else {
-  const cachedModel = await db.models.get('my-model');
-  await tf.loadLayersModel(cachedModel.data);
-}
+// 3) 离线检测: modelService.loadModel 先 remote,失败回 TF.js
+//    indexeddb://(沿用上述 cacheKey);Dexie 元数据只是"展示"作用,
+//    不影响加载路径
 ```
+
+> 历史说明:本节之前的伪代码 (`new Dexie('ModelCache')` + 把 model
+> 存 Dexie 的 `data` 字段) 描述了一个**未实现**的方案。真实架构以
+> 上述三层 + 落地代码 (`src/services/modelService.ts` +
+> `src/services/modelCacheRepository.ts`) 为准。v2 schema 会把 binary
+> 也搬进 Dexie,届时本节再次更新。
 
 #### 离线功能清单
 

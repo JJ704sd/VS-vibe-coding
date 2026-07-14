@@ -315,7 +315,7 @@ flowchart LR
 | 简历常见表述 | 当前代码事实 | 推荐面试说法 |
 |---|---|---|
 | React + Vite | 当前构建脚本与配置是 Webpack 5 | “前端使用 React/TS，当前仓库由 Webpack 构建并做路由拆包。” |
-| Dexie 缓存模型 | 依赖中有 Dexie，但当前模型缓存直接使用 TF.js `indexeddb://` | “用 TF.js IndexedDB IOHandler 做模型持久缓存；曾评估 Dexie，但主链路未依赖它。” |
+| Dexie 缓存模型 | 依赖与主链路都用到 Dexie；`modelService.loadModel` 成功后通过 `modelCacheRepository.recordLoad` 写元数据(`url` / `sizeBytes` / `lastLoadedAt` / `source`)。model binary 仍由 TF.js `indexeddb://` 落盘，两者用不同 IndexedDB dbName(本仓库 `ecg-model-cache` vs TF.js 默认 `tensorflowjs`)互不干扰 | “Dexie 接主链路索引模型缓存元数据(URL / 加载时间 / 来源 / 大小)，UI 面板可见可清；TF.js `indexeddb://` 仍存 model binary。两层职责分离。v2 schema 会把 binary 也搬进 Dexie，届时本层做一次迁移。” |
 | Web Worker 加载并运行模型 | Worker 与 hook 能力存在；Annotation Studio 默认调用 `ModelService.predictWithHeatmap` 主线程路径 | “实现过 Worker 推理通道，当前工作台主链路仍走 ModelService；这也是下一步性能/E2E 测试点。” |
 | 加载 ECGFounder 模型 | 默认 `/models/ecg-classifier/model.json` 当前未提供，需真实模型或显式 mock | “完成模型加载、缓存、shape 与 fallback 合同；demo 环境未内置真实权重，明确区分 mock。” |
 | 端到端部署 | Pages 部署静态前端，本地 API/sidecar 不随站点部署 | “完成静态前端 CI/CD；完整训练与助手演示需本地 sidecar。” |
