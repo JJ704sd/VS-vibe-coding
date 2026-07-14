@@ -2,6 +2,8 @@
 import { Alert, Button, Card, Col, Row, Space, Statistic, Switch, Table, Tag, Typography, message, Progress } from 'antd';
 import { DownloadOutlined, ExperimentOutlined } from '@ant-design/icons';
 
+import ModelCachePanel from '../components/ModelCachePanel';
+
 interface ModelInfo {
   id: string;
   name: string;
@@ -154,6 +156,10 @@ const AIModels: React.FC = () => {
           </Col>
         ))}
       </Row>
+
+      <div className="section-spacer">
+        <ModelCachePanel />
+      </div>
 
       <Row gutter={[16, 16]} style={{ marginTop: 18 }}>
         <Col xs={24} lg={16}>
